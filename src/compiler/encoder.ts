@@ -20,13 +20,10 @@ export function compileEncoder<T extends Schema>(schema: T, bitLength: number): 
 			returnBuffer = false;
 		}
 
-		else {
+		else {  // First compute the bit length if needed
 			returnBuffer = true;
-	`;
 
-	// First compute the bit length if needed
-	body += `
-		let bitLength = ${bitLength};
+			let bitLength = ${bitLength};
 	`;
 
 	for (const [name, field] of Object.entries(schema.fields)) {
@@ -133,12 +130,9 @@ export function compileEncoder<T extends Schema>(schema: T, bitLength: number): 
 	}
 
 	body += `
-		const byteLength = Math.ceil(bitLength / 8);
-		writer = new BufferWriter(byteLength);
-	`;
-
-	body += `
-		}	
+			const byteLength = Math.ceil(bitLength / 8);
+			writer = new BufferWriter(byteLength);
+		}
 	`;
 
 	if (schema.metadata?.prefix !== undefined) {
@@ -195,8 +189,8 @@ export function compileEncoder<T extends Schema>(schema: T, bitLength: number): 
 			case FieldType.Integer: {
 				if (field.min !== undefined || field.max !== undefined) {
 					body += `
-						if (item${name} !== undefined && (item${name} < ${ field.min ?? "-Infinity" } || item${name} > ${ field.max ?? "Infinity" })) {
-							throw new RangeError("Field '${name}' is out of range, expected [${ field.min ?? "-Infinity" }, ${ field.max ?? "Infinity" }], got " + item${name});
+						if (item${name} !== undefined && (item${name} < ${field.min ?? "-Infinity"} || item${name} > ${field.max ?? "Infinity"})) {
+							throw new RangeError("Field '${name}' is out of range, expected [${field.min ?? "-Infinity"}, ${field.max ?? "Infinity"}], got " + item${name});
 						}
 					`;
 				}
@@ -248,7 +242,7 @@ export function compileEncoder<T extends Schema>(schema: T, bitLength: number): 
 						}
 					`;
 				}
-						
+
 				body += `
 					writer.writeFloat64(item${name} ?? ${field.default});
 				`;
@@ -319,8 +313,6 @@ export function compileEncoder<T extends Schema>(schema: T, bitLength: number): 
 			return writer.offset - offset;
 		}
 	`;
-
-	console.log(body)
 
 	const compiled = new Function("data", "writer", "BufferWriter", body);
 

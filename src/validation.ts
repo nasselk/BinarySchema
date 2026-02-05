@@ -45,7 +45,7 @@ export function defineSchemas<T extends Record<string, Omit<Schema, "encode" | "
 					}
 
 					break;
-				}			
+				}
 
 				case FieldType.String: {
 					if (field.list && field.includeSize === false) {
@@ -55,12 +55,11 @@ export function defineSchemas<T extends Record<string, Omit<Schema, "encode" | "
 					} else if (field.default !== undefined) {
 						if (field.minLength !== undefined && field.default.length < field.minLength) {
 							throw new Error(`Field "${name}": Default value length is less than minLength, got ${field.default.length}, expected at least ${field.minLength}`);
-						}
-						else if (field.default !== undefined && field.maxLength !== undefined && field.default.length > field.maxLength) {
+						} else if (field.default !== undefined && field.maxLength !== undefined && field.default.length > field.maxLength) {
 							throw new Error(`Field "${name}": Default value length is greater than maxLength, got ${field.default.length}, expected at most ${field.maxLength}`);
 						}
-					} 
-					
+					}
+
 					if (field.includeSize === undefined) {
 						field.includeSize = true;
 					}

@@ -72,7 +72,7 @@ type PrimitiveByType = [
 	number, // Float64
 	boolean, // Boolean
 	string, // String
-	Buffer, // Buffer
+	ArrayBuffer, // Buffer
 ];
 
 type DataType<F extends Field<Record<string, any>>> = F extends { list: true } ? PrimitiveByType[F["type"]][] : PrimitiveByType[F["type"]];
