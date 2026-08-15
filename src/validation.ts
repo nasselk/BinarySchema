@@ -1,14 +1,43 @@
 import { FieldType, Field, Schema } from "./types.js";
 
-import { compileDecoder } from "./compiler/decoder.js";
+import { compileDecoder } from "./compilers/decoder.js";
 
-import { compileEncoder } from "./compiler/encoder.js";
+import { compileEncoder } from "./compilers/encoder.js";
 
+import { FIXED_FIELDS_BITS } from "./compilers/fixedIntegers.js";
+
+/**
+ * Defines a set of schemas and returns an object containing the compiled schemas with encode and decode methods.
+ *
+ * @param schemas An object where each key is a schema name and the value is a schema definition (without encode and decode methods).
+ *
+ * @returns An object containing the compiled schemas with encode and decode methods.
+ */
 export function defineSchemas<T extends Record<string, Omit<Schema, "encode" | "decode">>>(schemas: T): { [K in keyof T]: Schema<T[K]["fields"]> } {
 	const output = {} as { [K in keyof T]: Schema<T[K]["fields"]> };
 
 	for (const name in schemas) {
 		const schema = schemas[name] as unknown as Schema;
+
+		// Dependencies must be validated before reordering, since reordering
+		// itself walks each field's dependencies and assumes they resolve.
+		for (const name in schema.fields) {
+			const field = schema.fields[name];
+
+			if (field.dependencies?.length) {
+				for (const dependency of field.dependencies) {
+					if (!schema.fields[dependency]) {
+						throw new Error(`Field "${name}": Dependency "${dependency as string}" does not exist in schema`);
+					}
+
+					const dependencyField = schema.fields[dependency];
+
+					if (dependencyField.type !== FieldType.Boolean) {
+						throw new Error(`Field "${name}": Dependency "${dependency as string}" must be a boolean field`);
+					}
+				}
+			}
+		}
 
 		schema.fields = reorderFieldsByDependencies(schema.fields);
 
@@ -17,6 +46,14 @@ export function defineSchemas<T extends Record<string, Omit<Schema, "encode" | "
 			const field = schema.fields[name];
 
 			switch (field.type) {
+				case FieldType.Boolean: {
+					if ((field as any).optional) {
+						throw new Error(`Field "${name}": Boolean fields cannot be optional (they are already a single bit); use a "default" instead`);
+					}
+
+					break;
+				}
+
 				case FieldType.Integer: {
 					if (field.bits === undefined || field.bits <= 0) {
 						throw new Error(`Field "${name}": Number fields must have a positive "bits" value`);
@@ -33,6 +70,12 @@ export function defineSchemas<T extends Record<string, Omit<Schema, "encode" | "
 					break;
 				}
 
+				case FieldType.Int8:
+				case FieldType.Uint8:
+				case FieldType.Int16:
+				case FieldType.Uint16:
+				case FieldType.Int32:
+				case FieldType.Uint32:
 				case FieldType.Float16:
 				case FieldType.Float32:
 				case FieldType.Float64: {
@@ -77,21 +120,6 @@ export function defineSchemas<T extends Record<string, Omit<Schema, "encode" | "
 					break;
 				}
 			}
-
-			// Validate dependencies
-			if (field.dependencies?.length) {
-				for (const dependency of field.dependencies) {
-					if (!schema.fields[dependency]) {
-						throw new Error(`Field "${name}": Dependency "${dependency as string}" does not exist in schema`);
-					}
-
-					const dependencyField = schema.fields[dependency];
-
-					if (dependencyField.type !== FieldType.Boolean) {
-						throw new Error(`Field "${name}": Dependency "${dependency as string}" must be a boolean field`);
-					}
-				}
-			}
 		}
 
 		const bitLength = precomputeBitLength(schema);
@@ -99,7 +127,7 @@ export function defineSchemas<T extends Record<string, Omit<Schema, "encode" | "
 		schema.encode = compileEncoder(schema, bitLength);
 		schema.decode = compileDecoder(schema);
 
-		output[name] = schema;
+		output[name] = schema as unknown as { [K in keyof T]: Schema<T[K]["fields"]> }[typeof name];
 	}
 
 	return output;
@@ -156,7 +184,7 @@ function precomputeBitLength<T extends Record<string, Field<T>>>(schema: Schema<
 	let bitLength = 0;
 
 	for (const field of Object.values(schema.fields)) {
-		if (field.optional) {
+		if ((field as any).optional) {
 			bitLength += 1; // 1 bit for optional flag
 		}
 
@@ -175,6 +203,19 @@ function precomputeBitLength<T extends Record<string, Field<T>>>(schema: Schema<
 				case FieldType.Integer: {
 					if (!field.dependencies?.length && !field.optional) {
 						bitLength += field.bits;
+					}
+
+					break;
+				}
+
+				case FieldType.Int8:
+				case FieldType.Uint8:
+				case FieldType.Int16:
+				case FieldType.Uint16:
+				case FieldType.Int32:
+				case FieldType.Uint32: {
+					if (!field.dependencies?.length && !field.optional) {
+						bitLength += FIXED_FIELDS_BITS[field.type];
 					}
 
 					break;

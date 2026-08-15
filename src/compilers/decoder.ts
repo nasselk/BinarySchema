@@ -1,19 +1,21 @@
-import { type Schema, type SchemaToData, FieldType } from "../types.js";
+import { type Schema, type DecodedData, FieldType } from "../types.js";
 
-import { BufferReader } from "../buffer/reader.js";
+import { BufferReader } from "@nasselk/binarypack";
 
-export function compileDecoder<T extends Schema>(schema: T): (reader?: BufferReader) => SchemaToData<T> {
+import { FIXED_FIELDS_METHODS } from "./fixedIntegers.js";
+
+export function compileDecoder<T extends Schema>(schema: T): (reader?: BufferReader) => DecodedData<T> {
 	let body = `
 		const data = {};
 	`;
 
 	for (const [name, field] of Object.entries(schema.fields)) {
-		if (field.dependencies?.length || field.optional) {
+		if (field.dependencies?.length || (field as any).optional) {
 			body += `
 				let read${name} = true;
 			`;
 
-			if (field.optional) {
+			if ((field as any).optional) {
 				body += `
 					if (!reader.readBoolean()) {
 						read${name} = false;
@@ -38,13 +40,13 @@ export function compileDecoder<T extends Schema>(schema: T): (reader?: BufferRea
 			body += `
 				const count${name} = reader.readUint16();
 				data.${name} = [];
-				
+
 				for (let i = 0; i < count${name}; i++) {
 					data.${name}.push(
 			`;
 		} else {
 			body += `
-				data.${name} = 
+				data.${name} =
 			`;
 		}
 
@@ -65,25 +67,17 @@ export function compileDecoder<T extends Schema>(schema: T): (reader?: BufferRea
 				break;
 			}
 
-			case FieldType.Float16: {
-				body += `
-					reader.readFloat16()
-				`;
-
-				break;
-			}
-
-			case FieldType.Float32: {
-				body += `
-					reader.readFloat32()
-				`;
-
-				break;
-			}
-
+			case FieldType.Int8:
+			case FieldType.Uint8:
+			case FieldType.Int16:
+			case FieldType.Uint16:
+			case FieldType.Int32:
+			case FieldType.Uint32:
+			case FieldType.Float16:
+			case FieldType.Float32:
 			case FieldType.Float64: {
 				body += `
-					reader.readFloat64()
+					reader.read${FIXED_FIELDS_METHODS[field.type]}()
 				`;
 
 				break;
@@ -113,17 +107,19 @@ export function compileDecoder<T extends Schema>(schema: T): (reader?: BufferRea
 			`;
 		}
 
-		if (field.dependencies?.length || field.optional) {
+		if (field.dependencies?.length || (field as any).optional) {
 			body += `
             	}
             `;
 		}
 
-		body += `
+		if ((field as any).default !== undefined) {
+			body += `
 			if (data.${name} === undefined) {
 				data.${name} = ${field.type === FieldType.String ? `"${field.default}"` : (field as any).default};
 			}
 		`;
+		}
 	}
 
 	body += `
@@ -132,7 +128,7 @@ export function compileDecoder<T extends Schema>(schema: T): (reader?: BufferRea
 
 	const compiled = new Function("reader", body);
 
-	return function (reader?: BufferReader): SchemaToData<T> {
+	return function (reader?: BufferReader): DecodedData<T> {
 		return compiled(reader);
 	};
 }

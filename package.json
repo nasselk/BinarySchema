@@ -1,25 +1,47 @@
 {
 	"type": "module",
-	"name": "binaryschema",
-	"author": "DarePhoenix",
-	"description": "Typescript byte packing library with bit level control.",
-	"version": "1.0.0",
+	"name": "@nasselk/binaryschema",
+	"author": "nasselk",
+	"description": "Typescript blazing fast data encoding library",
+	"version": "0.1.0",
 	"license": "MIT",
+	"homepage": "https://github.com/nasselk/BinarySchema",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/nasselk/BinarySchema.git"
 	},
 	"bugs": {
 		"url": "https://github.com/nasselk/BinarySchema/issues",
-		"email": "darephoenixgamer@gmail.com"
+		"email": "nassim.elkarati@gmail.com"
 	},
-	"homepage": "https://github.com/nasselk/BinarySchema",
+	"sideEffects": false,
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist",
+		"src"
+	],
+	"engines": {
+		"node": ">=20"
+	},
 	"scripts": {
-		"format": "biome format --write"
+		"build": "tsc",
+		"test": "bun test",
+		"types:check": "tsc --noEmit",
+		"biome:check": "biome check --write"
+	},
+	"dependencies": {
+		"@nasselk/binarypack": "github:nasselk/BinaryPack"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.2.6",
-		"globals": "^16.4.0",
-		"typescript": "^5.9.3"
+		"@biomejs/biome": "^2.5.8",
+		"@types/bun": "^1.3.14",
+		"typescript": "^7.0.2"
 	}
 }
