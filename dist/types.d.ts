@@ -110,5 +110,25 @@ export type DecodedData<S extends Schema> = {
 } & {
     [K in keyof S["fields"] as IsDecodeOptional<S["fields"][K]> extends true ? K : never]?: DataType<S["fields"][K]>;
 };
+export type SchemaInput<T extends {
+    [K in keyof T]: {
+        fields: Record<string, any>;
+    };
+}> = {
+    [K in keyof T]: {
+        fields: Record<string, Field<T[K]["fields"]>>;
+        metadata?: {
+            repeated?: boolean;
+            prefix?: number;
+        };
+    };
+};
+export type SchemaOutput<T extends {
+    [K in keyof T]: {
+        fields: Record<string, any>;
+    };
+}> = {
+    [K in keyof T]: Schema<T[K]["fields"]>;
+};
 export {};
 //# sourceMappingURL=types.d.ts.map

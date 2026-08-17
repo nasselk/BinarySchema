@@ -1,4 +1,4 @@
-import { FieldType, Field, Schema } from "./types.js";
+import { FieldType, Field, Schema, SchemaInput, SchemaOutput } from "./types.js";
 
 import { compileDecoder } from "./compilers/decoder.js";
 
@@ -13,7 +13,7 @@ import { FIXED_FIELDS_BITS } from "./compilers/utils.js";
  *
  * @returns An object containing the compiled schemas with encode and decode methods.
  */
-export function defineSchemas<T extends Record<string, Omit<Schema, "encode" | "decode">>>(schemas: T): { [K in keyof T]: Schema<T[K]["fields"]> } {
+export function defineSchemas<T extends SchemaInput<T>>(schemas: T): SchemaOutput<T> {
 	const output = {} as { [K in keyof T]: Schema<T[K]["fields"]> };
 
 	for (const name in schemas) {
