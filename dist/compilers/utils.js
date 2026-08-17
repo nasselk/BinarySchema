@@ -38,4 +38,4 @@ export const FIXED_INTEGER_BOUNDS = {
     [FieldType.Int32]: { min: -2147483648, max: 2147483647 },
     [FieldType.Uint32]: { min: 0, max: 4294967295 },
 };
-//# sourceMappingURL=fixedIntegers.js.map
+//# sourceMappingURL=utils.js.map

@@ -1,5 +1,5 @@
 import { FieldType } from "../types.js";
-import { FIXED_FIELDS_METHODS } from "./fixedIntegers.js";
+import { FIXED_FIELDS_METHODS } from "./utils.js";
 export function compileDecoder(schema) {
     let body = `
 		const data = {};

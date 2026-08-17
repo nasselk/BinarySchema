@@ -4,4 +4,4 @@ export declare const FIXED_INTEGER_BOUNDS: Record<number, {
     min: number;
     max: number;
 }>;
-//# sourceMappingURL=fixedIntegers.d.ts.map
+//# sourceMappingURL=utils.d.ts.map

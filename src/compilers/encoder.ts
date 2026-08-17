@@ -2,7 +2,7 @@ import { type Schema, type EncodedData, FieldType } from "../types.js";
 
 import { BufferWriter } from "@nasselk/binarypack";
 
-import { FIXED_FIELDS_BITS, FIXED_INTEGER_BOUNDS, FIXED_FIELDS_METHODS } from "./fixedIntegers.js";
+import { FIXED_FIELDS_BITS, FIXED_INTEGER_BOUNDS, FIXED_FIELDS_METHODS } from "./utils.js";
 
 interface encoder<T extends Schema> {
 	(data: EncodedData<T>): Uint8Array;

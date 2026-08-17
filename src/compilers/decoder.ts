@@ -2,7 +2,7 @@ import { type Schema, type DecodedData, FieldType } from "../types.js";
 
 import { BufferReader } from "@nasselk/binarypack";
 
-import { FIXED_FIELDS_METHODS } from "./fixedIntegers.js";
+import { FIXED_FIELDS_METHODS } from "./utils.js";
 
 export function compileDecoder<T extends Schema>(schema: T): (reader?: BufferReader) => DecodedData<T> {
 	let body = `

@@ -1,7 +1,7 @@
 import { FieldType } from "./types.js";
 import { compileDecoder } from "./compilers/decoder.js";
 import { compileEncoder } from "./compilers/encoder.js";
-import { FIXED_FIELDS_BITS } from "./compilers/fixedIntegers.js";
+import { FIXED_FIELDS_BITS } from "./compilers/utils.js";
 /**
  * Defines a set of schemas and returns an object containing the compiled schemas with encode and decode methods.
  *
