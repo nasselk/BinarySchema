@@ -1,3 +1,3 @@
 export { defineSchemas } from "./validation.js";
 
-export { FieldType, type Field, type Schema, type EncodedData, type DecodedData } from "./types.js";
+export { FieldType, type Field, type Schema, type SchemaInput, type SchemaOutput, type EncodedData, type DecodedData } from "./types.js";
