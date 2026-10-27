@@ -1,4 +1,5 @@
 import type { BufferReader, BufferWriter } from "@nasselk/binarypack";
+import type { Field, FieldBrand } from "./fields.js";
 export declare enum FieldType {
     Integer = 0,
     Int8 = 1,
@@ -12,9 +13,10 @@ export declare enum FieldType {
     Float64 = 9,
     Boolean = 10,
     String = 11,
-    Buffer = 12
+    Buffer = 12,
+    Object = 13
 }
-type PrimitiveByType = {
+type DecodedPrimitive = {
     [FieldType.Integer]: number;
     [FieldType.Int8]: number;
     [FieldType.Uint8]: number;
@@ -27,46 +29,28 @@ type PrimitiveByType = {
     [FieldType.Float64]: number;
     [FieldType.Boolean]: boolean;
     [FieldType.String]: string;
-    [FieldType.Buffer]: ArrayBuffer;
+    [FieldType.Buffer]: Uint8Array;
 };
-interface BaseField<T extends Record<string, any>> {
-    dependencies?: readonly (string & keyof T)[];
-    list?: boolean;
-}
-interface NumericField {
-    optional?: boolean;
-    default?: number;
-    min?: number;
-    max?: number;
-}
-interface SizedField {
-    optional?: boolean;
-    includeSize?: boolean;
-    minLength?: number;
-    maxLength?: number;
-}
-export type Field<T extends Record<string, any>> = BaseField<T> & ({
-    type: FieldType.Boolean;
-    default?: boolean;
-} | (NumericField & {
-    type: FieldType.Integer;
-    signed?: boolean;
-    bits: number;
-}) | (NumericField & {
-    type: FieldType.Int8 | FieldType.Uint8 | FieldType.Int16 | FieldType.Uint16 | FieldType.Float16 | FieldType.Int32 | FieldType.Uint32 | FieldType.Float32 | FieldType.Float64;
-}) | (SizedField & {
-    type: FieldType.String;
-    default?: string;
-    pattern?: RegExp;
-}) | (SizedField & {
-    type: FieldType.Buffer;
-}));
-export type Schema<T extends Record<string, Field<T>> = Record<string, Field<any>>> = {
-    fields: T;
-    metadata?: {
-        repeated?: boolean;
-        prefix?: number[];
+type Primitive = {
+    encode: Omit<DecodedPrimitive, FieldType.Buffer> & {
+        [FieldType.Buffer]: Uint8Array | ArrayBuffer;
     };
+    decode: DecodedPrimitive;
+};
+type Mode = keyof Primitive;
+/** The internal form of a schema: its validated fields and optional metadata. */
+export type SchemaDefinition = {
+    fields: Record<string, Field>;
+    metadata?: {
+        prefix?: readonly number[];
+    };
+};
+/** A compiled schema, as returned by `defineSchemas`. */
+export type Schema<F = Record<string, Field>> = {
+    /** Smallest possible encoded size, in bytes. */
+    readonly minByteLength: number;
+    /** Largest possible encoded size, in bytes. `Infinity` when a string, buffer or list has no upper bound. */
+    readonly maxByteLength: number;
     /**
      * Encodes the given data according to the schema and returns the output buffer.
      *
@@ -74,16 +58,16 @@ export type Schema<T extends Record<string, Field<T>> = Record<string, Field<any
      *
      * @returns A Uint8Array containing the encoded data
      */
-    encode(data: EncodedData<Schema<T>>): Uint8Array;
+    encode(data: Data<F, "encode">): Uint8Array;
     /**
      * Encodes the given data according to the schema and writes it to the provided BufferWriter.
      *
      * @param data The data to encode, matching the schema's fields.
-     * @param writer The BufferWriter to write the encoded data to. If not provided, a new BufferWriter will be created.
+     * @param writer The BufferWriter to write the encoded data to.
      *
      * @returns The number of bytes written to the BufferWriter.
      */
-    encode(data: EncodedData<Schema<T>>, writer: BufferWriter): number;
+    encode(data: Data<F, "encode">, writer: BufferWriter): number;
     /**
      * Decodes data from the given BufferReader according to the schema.
      *
@@ -91,24 +75,58 @@ export type Schema<T extends Record<string, Field<T>> = Record<string, Field<any
      *
      * @returns An object containing the decoded data, matching the schema's fields.
      */
-    decode(reader: BufferReader): DecodedData<Schema<T>>;
+    decode(reader: BufferReader): Data<F, "decode">;
 };
-type DataType<F extends Field<Record<string, any>>> = F extends {
-    list: true;
-} ? PrimitiveByType[F["type"]][] : PrimitiveByType[F["type"]];
-type IsEncodeOptional<F> = F extends {
+type IsOptional<F, M extends Mode> = "default" extends keyof F ? (M extends "encode" ? true : false) : F extends {
     optional: true;
-} ? true : "default" extends keyof F ? true : "dependencies" extends keyof F ? true : false;
-type IsDecodeOptional<F> = "default" extends keyof F ? false : IsEncodeOptional<F>;
-export type EncodedData<S extends Schema> = {
-    [K in keyof S["fields"] as IsEncodeOptional<S["fields"][K]> extends true ? never : K]: DataType<S["fields"][K]>;
+} | {
+    dependencies: readonly unknown[];
+} ? true : false;
+type Value<F, M extends Mode> = F extends {
+    type: FieldType.Object;
+    fields: infer C;
+} ? Data<C, M> : F extends {
+    type: infer T extends keyof DecodedPrimitive;
+} ? Primitive[M][T] : never;
+type ValueOrList<F, M extends Mode> = F extends {
+    list: true;
+} ? Value<F, M>[] : Value<F, M>;
+type Data<F, M extends Mode> = {
+    -readonly [K in keyof F as IsOptional<F[K], M> extends true ? never : K]: ValueOrList<F[K], M>;
 } & {
-    [K in keyof S["fields"] as IsEncodeOptional<S["fields"][K]> extends true ? K : never]?: DataType<S["fields"][K]>;
+    -readonly [K in keyof F as IsOptional<F[K], M> extends true ? K : never]?: ValueOrList<F[K], M>;
 };
-export type DecodedData<S extends Schema> = {
-    [K in keyof S["fields"] as IsDecodeOptional<S["fields"][K]> extends true ? never : K]: DataType<S["fields"][K]>;
-} & {
-    [K in keyof S["fields"] as IsDecodeOptional<S["fields"][K]> extends true ? K : never]?: DataType<S["fields"][K]>;
+type SchemaLike = {
+    fields: unknown;
+} | {
+    decode(reader: BufferReader): unknown;
+};
+/** The data `encode` accepts, for a schema definition or a compiled schema (read from its `encode` signature). */
+export type EncodedData<S extends SchemaLike> = S extends {
+    fields: infer F;
+} ? Data<F, "encode"> : S extends {
+    encode(data: infer D, writer: BufferWriter): number;
+} ? D : never;
+/** The data `decode` returns, for a schema definition or a compiled schema (read from its `decode` signature). */
+export type DecodedData<S extends SchemaLike> = S extends {
+    fields: infer F;
+} ? Data<F, "decode"> : S extends {
+    decode(reader: BufferReader): infer R;
+} ? R : never;
+type BooleanKeys<F> = {
+    [K in keyof F]: F[K] extends {
+        type: FieldType.Boolean;
+    } ? K : never;
+}[keyof F];
+type FieldsInput<F> = {
+    [K in keyof F]: FieldBrand & {
+        dependencies?: readonly (string & BooleanKeys<F>)[];
+    } & (F[K] extends {
+        type: FieldType.Object;
+        fields: infer C;
+    } ? {
+        fields: FieldsInput<C>;
+    } : unknown);
 };
 export type SchemaInput<T extends {
     [K in keyof T]: {
@@ -116,10 +134,9 @@ export type SchemaInput<T extends {
     };
 }> = {
     [K in keyof T]: {
-        fields: Record<string, Field<T[K]["fields"]>>;
+        fields: FieldsInput<T[K]["fields"]>;
         metadata?: {
-            repeated?: boolean;
-            prefix?: number[];
+            prefix?: readonly number[];
         };
     };
 };

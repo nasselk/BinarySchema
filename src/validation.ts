@@ -6,7 +6,7 @@ import { compileDecoder } from "./compilers/decoder.js";
 
 import { compileEncoder } from "./compilers/encoder.js";
 
-import { FIXED_FIELDS_BITS } from "./compilers/utils.js";
+import { countBits, FIXED_FIELDS_BITS } from "./compilers/utils.js";
 
 // Strings and buffers are prefixed with their byte length as a uint16
 const SIZE_PREFIX_BYTES = 2;
@@ -28,13 +28,13 @@ export function defineSchemas<const T extends SchemaInput<T>>(schemas: T): Schem
 	const output = {} as Record<string, Schema>;
 
 	for (const name in schemas) {
-		output[name] = defineSchema(schemas[name] as unknown as SchemaDefinition);
+		output[name] = defineSchema(schemas[name] as unknown as SchemaDefinition, name);
 	}
 
 	return output as SchemaOutput<T>;
 }
 
-function defineSchema(input: SchemaDefinition): Schema {
+function defineSchema(input: SchemaDefinition, name: string): Schema {
 	const definition: SchemaDefinition = {
 		fields: prepareFields(input.fields, ""),
 		metadata: { ...input.metadata, prefix: input.metadata?.prefix ? [...input.metadata.prefix] : undefined },
@@ -45,8 +45,8 @@ function defineSchema(input: SchemaDefinition): Schema {
 	return {
 		minByteLength,
 		maxByteLength,
-		encode: compileEncoder(definition),
-		decode: compileDecoder(definition),
+		encode: compileEncoder(definition, name),
+		decode: compileDecoder(definition, name),
 	} as Schema;
 }
 
@@ -96,6 +96,14 @@ function prepareFields(input: Fields, path: string): Fields {
 	for (const name in fields) {
 		const field = fields[name];
 		const label = `${path}${name}`;
+
+		if (field.maxItems !== undefined) {
+			if (!field.list) {
+				throw new Error(`Field "${label}": "maxItems" only applies to lists; add "list: true"`);
+			} else if (!Number.isInteger(field.maxItems) || field.maxItems < 1 || field.maxItems > 65535) {
+				throw new Error(`Field "${label}": "maxItems" must be a whole number from 1 to 65535, got ${field.maxItems}`);
+			}
+		}
 
 		switch (field.type) {
 			case FieldType.Boolean: {
@@ -263,12 +271,25 @@ function fieldsSize(fields: Fields): Sizes {
 		}
 
 		if (field.list) {
-			// A uint16 item count, then any number of items
-			if (!mayBeAbsent) {
-				total.minBytes += SIZE_PREFIX_BYTES;
-			}
+			if (field.maxItems === undefined) {
+				// A 2-byte item count, then any number of items
+				if (!mayBeAbsent) {
+					total.minBytes += SIZE_PREFIX_BYTES;
+				}
 
-			total.maxBytes = Infinity;
+				total.maxBytes = Infinity;
+			} else {
+				// A bit-packed count, then at most maxItems items
+				const count = countBits(field.maxItems);
+				const item = valueSize(field);
+
+				if (!mayBeAbsent) {
+					total.minBits += count;
+				}
+
+				total.maxBits += count + field.maxItems * item.maxBits;
+				total.maxBytes += field.maxItems * item.maxBytes;
+			}
 
 			continue;
 		}

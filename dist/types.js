@@ -13,5 +13,6 @@ export var FieldType;
     FieldType[FieldType["Boolean"] = 10] = "Boolean";
     FieldType[FieldType["String"] = 11] = "String";
     FieldType[FieldType["Buffer"] = 12] = "Buffer";
+    FieldType[FieldType["Object"] = 13] = "Object";
 })(FieldType || (FieldType = {}));
 //# sourceMappingURL=types.js.map

@@ -16,7 +16,6 @@ import { BufferReader, BufferWriter } from "@nasselk/binarypack";
 import avro from "avsc";
 import * as flatbuffers from "flatbuffers";
 import protobuf from "protobufjs";
-import { setDirectEnabled } from "../src/compilers/direct.ts";
 import { defineSchemas, field } from "../src/index.ts";
 
 // ---------------------------------------------------------------------------
@@ -98,10 +97,6 @@ const definitions = {
 	},
 };
 
-// The same schemas compiled twice: with the direct code (default) and with the BinaryPack-based code, to compare them
-setDirectEnabled(false);
-const binaryPackSchemas = defineSchemas(definitions);
-setDirectEnabled(true);
 const schemas = defineSchemas(definitions);
 
 const proto = protobuf.parse(`
@@ -470,8 +465,7 @@ function codecsFor(s: Scenario): Codec[] {
 	};
 
 	return [
-		...binarySchemaRows("BinarySchema (direct)", schema),
-		...binarySchemaRows("BinarySchema (BinaryPack)", binaryPackSchemas[s.key], "BinarySchema (direct)"),
+		...binarySchemaRows("BinarySchema", schema),
 		{
 			name: "protobuf (protobufjs)",
 			encode: (d) => pbType.encode(d).finish(),

@@ -1,3 +1,4 @@
 export { defineSchemas } from "./validation.js";
-export { FieldType, type Field, type Schema, type SchemaInput, type SchemaOutput, type EncodedData, type DecodedData } from "./types.js";
+export { field, type NumberFieldOptions, type IntegerFieldOptions, type BooleanFieldOptions, type StringFieldOptions, type BufferFieldOptions, type ObjectFieldOptions } from "./fields.js";
+export type { Schema, EncodedData, DecodedData } from "./types.js";
 //# sourceMappingURL=index.d.ts.map

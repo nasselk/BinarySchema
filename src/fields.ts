@@ -12,6 +12,12 @@ interface CommonFieldOptions {
 	/** Encode an array of values instead of one, prefixed with a 2-byte item count. */
 	list?: boolean;
 
+	/**
+	 * With `list`: the most items the list can hold (1 to 65535). Checked when encoding and decoding, and the item
+	 * count then takes only the bits it needs instead of 2 bytes (e.g. `maxItems: 64` → a 7-bit count).
+	 */
+	maxItems?: number;
+
 	/** Only send this field when all these Boolean sibling fields are true. Costs no extra bits. */
 	dependencies?: readonly string[];
 }

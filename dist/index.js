@@ -1,3 +1,3 @@
 export { defineSchemas } from "./validation.js";
-export { FieldType } from "./types.js";
+export { field } from "./fields.js";
 //# sourceMappingURL=index.js.map

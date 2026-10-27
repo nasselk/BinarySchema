@@ -1,10 +1,10 @@
-import { SchemaInput, SchemaOutput } from "./types.js";
+import { type SchemaInput, type SchemaOutput } from "./types.js";
 /**
- * Defines a set of schemas and returns an object containing the compiled schemas with encode and decode methods.
+ * Defines a set of schemas and returns an object containing the compiled schemas.
  *
- * @param schemas An object where each key is a schema name and the value is a schema definition (without encode and decode methods).
+ * @param schemas An object where each key is a schema name and the value is a schema definition. The definitions are not modified.
  *
- * @returns An object containing the compiled schemas with encode and decode methods.
+ * @returns An object with the same keys, each value exposing `encode`, `decode`, `minByteLength` and `maxByteLength`.
  */
-export declare function defineSchemas<T extends SchemaInput<T>>(schemas: T): SchemaOutput<T>;
+export declare function defineSchemas<const T extends SchemaInput<T>>(schemas: T): SchemaOutput<T>;
 //# sourceMappingURL=validation.d.ts.map

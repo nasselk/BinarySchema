@@ -2,7 +2,7 @@
 
 BinarySchema is a TypeScript library for **declarative JSON-to-binary encoding**. You describe your data as a schema — field names, types, bit widths, constraints — and it compiles a dedicated encoder/decoder pair for that exact shape, with full TypeScript type inference for the resulting data.
 
-It's built on top of [BinaryPack](https://github.com/nasselk/BinaryPack) for the low-level bit/byte operations (`BufferWriter`/`BufferReader`), and adds the schema layer on top: validation, optional/dependent fields, defaults, lists, and compiled `encode`/`decode` functions generated per schema — not a generic runtime interpreter.
+Each schema is compiled into dedicated `encode`/`decode` functions that read and write bytes directly — not a generic runtime interpreter. [BinaryPack](https://github.com/nasselk/BinaryPack)'s `BufferWriter`/`BufferReader` are used as the containers when you want to pack several messages into one buffer or read a prefix byte yourself.
 
 ## Overview
 
@@ -11,7 +11,7 @@ It's built on top of [BinaryPack](https://github.com/nasselk/BinaryPack) for the
 - Optional fields, field-to-field dependencies, and default values, each with different wire-format costs
 - Arrays via `list: true` on any field type
 - Validated at schema-definition time (bad bit widths, out-of-range defaults, circular dependencies, ...) and at encode time (range/length/pattern checks)
-- Encoders/decoders are generated once per schema via `new Function(...)`, not interpreted per call
+- Encoders/decoders are generated once per schema via `new Function(...)`, not interpreted per call: straight-line code that writes and reads bytes directly, with one capacity check per message
 
 ## Table of contents
 
@@ -86,7 +86,7 @@ console.log(decoded); // { id: 12345, x: 150.5, y: -200.75, health: 85, name: "H
 - **`field`** — builders for every field: `field.integer(bits)`, `field.int8()`, `field.uint8()`, `field.int16()`, `field.uint16()`, `field.int32()`, `field.uint32()`, `field.float16()`, `field.float32()`, `field.float64()`, `field.boolean()`, `field.string()`, `field.buffer()`, `field.object(fields)`. Each takes an options object, and your editor suggests only the options valid for that field type. Fields must be made with these builders.
 - **`schema.encode(data)`** → `Uint8Array`, or **`schema.encode(data, writer)`** → number of bytes written into an existing `BufferWriter` (see [Shared writer/reader](#shared-writerreader-packet-framing)).
 - **`schema.decode(reader)`** → the decoded data object, read from a `BufferReader`.
-- **`schema.minByteLength` / `schema.maxByteLength`** — the smallest and largest possible encoded size in bytes, computed when the schema is defined. Optional and dependency-gated fields count as absent for the minimum. Strings count up to 3 bytes per character (`maxLength × 3`) for the maximum. A string or buffer without `maxLength`, or any `list` field, makes the maximum `Infinity`. When both are equal, every message has that exact size.
+- **`schema.minByteLength` / `schema.maxByteLength`** — the smallest and largest possible encoded size in bytes, computed when the schema is defined. Optional and dependency-gated fields count as absent for the minimum. Strings count up to 3 bytes per character (`maxLength × 3`) for the maximum. A string or buffer without `maxLength`, or a `list` without `maxItems`, makes the maximum `Infinity`. When both are equal, every message has that exact size.
 - **`EncodedData<S>` / `DecodedData<S>`** — the inferred input/output types for a schema. They differ: a field with a `default` is *optional* on the way in (you can omit it) but *never `undefined`* on the way out (the decoder always resolves it). See [below](#optional-fields-vs-dependencies-vs-defaults).
 
 ```ts
@@ -117,6 +117,7 @@ Options shared by every field type:
 
 ```ts
 list?: boolean,              // an array of values, prefixed with a 2-byte count
+maxItems?: number,           // with list: at most this many items (the count then takes only the bits it needs)
 dependencies?: string[],     // only sent when these Boolean sibling fields are true
 ```
 
@@ -250,6 +251,17 @@ const decoded = schemas.Inventory.decode(new BufferReader(bytes));
 console.log(decoded.items); // [1, 5, 10, 23], fully typed as number[]
 ```
 
+Set `maxItems` when a list has a known limit:
+
+```ts
+entities: field.object(Entity, { list: true, maxItems: 64 }),
+```
+
+- The item count then takes only the bits it needs (64 → 7 bits) instead of 2 bytes, and it's bit-packed like any other bit field.
+- Encoding more items throws; decoding a count above `maxItems` throws too (corrupt or hostile data is rejected before anything is allocated).
+- `maxByteLength` becomes finite (it was `Infinity` for any list), as long as the items themselves are bounded.
+- Lists without `maxItems` keep the 2-byte count (up to 65535 items), so adding `maxItems` to an existing field changes its wire format.
+
 ## Nested objects
 
 `field.object(fields)` holds its own fields, encoded inline. It works with `list`, `optional` and `dependencies` like any other field, and nests to any depth:
@@ -357,7 +369,8 @@ git push --tags
 ## Notes
 
 - Encoders/decoders are compiled with `new Function(...)` at `defineSchemas` time — this may be blocked in strict Content Security Policy environments.
-- This library depends on [`@nasselk/binarypack`](https://github.com/nasselk/BinaryPack) for the underlying `BufferWriter`/`BufferReader`; its README documents the lower-level bit/byte API this library builds on.
+- The generated code does its own byte work; [`@nasselk/binarypack`](https://github.com/nasselk/BinaryPack) provides the `BufferWriter`/`BufferReader` types and objects for `encode(data, writer)` / `decode(reader)`. Messages are little-endian; a big-endian writer or reader gets its own compiled variant, created on first use.
+- The wire format is pinned by `tests/wire-format.test.ts`: 600 recorded messages must keep encoding to exactly the same bytes.
 - Portions of this README and inline documentation were written with AI assistance.
 
 ## License
