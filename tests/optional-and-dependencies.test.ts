@@ -2,15 +2,15 @@ import { describe, expect, test } from "bun:test";
 
 import { BufferReader } from "@nasselk/binarypack";
 
-import { FieldType } from "../src/types.js";
+import { field } from "../src/fields.js";
 
 import { defineSchemas } from "../src/validation.js";
 
 const { OptionalFields } = defineSchemas({
 	OptionalFields: {
 		fields: {
-			title: { type: FieldType.String, optional: true },
-			count: { type: FieldType.Integer, bits: 8, optional: true },
+			title: field.string({ optional: true }),
+			count: field.integer(8, { optional: true }),
 		},
 	},
 });
@@ -18,8 +18,8 @@ const { OptionalFields } = defineSchemas({
 const { DependentFields } = defineSchemas({
 	DependentFields: {
 		fields: {
-			hasBio: { type: FieldType.Boolean },
-			bio: { type: FieldType.String, dependencies: ["hasBio"] },
+			hasBio: field.boolean(),
+			bio: field.string({ dependencies: ["hasBio"] }),
 		},
 	},
 });
@@ -29,8 +29,8 @@ const { DependentFields } = defineSchemas({
 const { ReorderedDependentFields } = defineSchemas({
 	ReorderedDependentFields: {
 		fields: {
-			nickname: { type: FieldType.String, dependencies: ["hasNickname"] },
-			hasNickname: { type: FieldType.Boolean },
+			nickname: field.string({ dependencies: ["hasNickname"] }),
+			hasNickname: field.boolean(),
 		},
 	},
 });
@@ -38,9 +38,9 @@ const { ReorderedDependentFields } = defineSchemas({
 const { MultiDependencyField } = defineSchemas({
 	MultiDependencyField: {
 		fields: {
-			isPremium: { type: FieldType.Boolean },
-			isVerified: { type: FieldType.Boolean },
-			badge: { type: FieldType.Integer, bits: 8, dependencies: ["isPremium", "isVerified"] },
+			isPremium: field.boolean(),
+			isVerified: field.boolean(),
+			badge: field.integer(8, { dependencies: ["isPremium", "isVerified"] }),
 		},
 	},
 });

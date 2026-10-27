@@ -215,8 +215,8 @@ function precomputeBitLength(schema) {
             }
         }
     }
-    if (schema.metadata.prefix !== undefined) {
-        bitLength += 8;
+    if (schema.metadata.prefix?.length) {
+        bitLength += 8 * schema.metadata.prefix.length;
     }
     return bitLength;
 }

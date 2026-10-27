@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { BufferReader } from "@nasselk/binarypack";
 
-import { FieldType } from "../src/types.js";
+import { field } from "../src/fields.js";
 
 import { defineSchemas } from "../src/validation.js";
 
@@ -11,7 +11,7 @@ describe("signed integer round-trip at byte-aligned offsets", () => {
 		SignedFirst: {
 			fields: {
 				// 16 bits, signed, and the very first field -> starts at bit offset 0.
-				value: { type: FieldType.Integer, bits: 16, signed: true },
+				value: field.integer(16, { signed: true }),
 			},
 		},
 	});

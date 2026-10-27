@@ -2,17 +2,17 @@ import { describe, expect, test } from "bun:test";
 
 import { BufferReader } from "@nasselk/binarypack";
 
-import { FieldType } from "../src/types.js";
+import { field } from "../src/fields.js";
 
 import { defineSchemas } from "../src/validation.js";
 
 const { Defaults } = defineSchemas({
 	Defaults: {
 		fields: {
-			score: { type: FieldType.Integer, bits: 8, default: 10, min: 0, max: 100 },
-			ratio: { type: FieldType.Float32, default: 1.5 },
-			active: { type: FieldType.Boolean, default: true },
-			name: { type: FieldType.String, default: "anon" },
+			score: field.integer(8, { default: 10, min: 0, max: 100 }),
+			ratio: field.float32({ default: 1.5 }),
+			active: field.boolean({ default: true }),
+			name: field.string({ default: "anon" }),
 		},
 	},
 });
@@ -20,7 +20,7 @@ const { Defaults } = defineSchemas({
 const { OptionalWithDefault } = defineSchemas({
 	OptionalWithDefault: {
 		fields: {
-			level: { type: FieldType.Integer, bits: 8, optional: true, default: 3 },
+			level: field.integer(8, { optional: true, default: 3 }),
 		},
 	},
 });

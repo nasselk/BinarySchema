@@ -2,15 +2,15 @@ import { describe, expect, test } from "bun:test";
 
 import { BufferReader } from "@nasselk/binarypack";
 
-import { FieldType } from "../src/types.js";
+import { field } from "../src/fields.js";
 
 import { defineSchemas } from "../src/validation.js";
 
 const { Tagged } = defineSchemas({
 	Tagged: {
-		metadata: { prefix: 7 },
+		metadata: { prefix: [7] },
 		fields: {
-			value: { type: FieldType.Integer, bits: 8 },
+			value: field.integer(8),
 		},
 	},
 });
@@ -34,5 +34,34 @@ describe("schema.metadata.prefix", () => {
 		expect(reader.readUint8()).toBe(7);
 		expect(Tagged.decode(reader)).toEqual({ value: 42 });
 		expect(reader.remainingBytes).toBe(0);
+	});
+});
+
+const { MultiTagged, NoPrefix } = defineSchemas({
+	MultiTagged: {
+		metadata: { prefix: [0xde, 0xad, 0xbe] },
+		fields: {
+			value: field.integer(8),
+		},
+	},
+	NoPrefix: {
+		metadata: { prefix: [] },
+		fields: {
+			value: field.integer(8),
+		},
+	},
+});
+
+describe("schema.metadata.prefix with multiple bytes", () => {
+	test("encode() writes every prefix byte in order", () => {
+		const bytes = MultiTagged.encode({ value: 42 });
+
+		expect([...bytes]).toEqual([0xde, 0xad, 0xbe, 42]);
+	});
+
+	test("an empty prefix array writes nothing", () => {
+		const bytes = NoPrefix.encode({ value: 42 });
+
+		expect([...bytes]).toEqual([42]);
 	});
 });

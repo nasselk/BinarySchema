@@ -2,17 +2,17 @@ import { describe, expect, test } from "bun:test";
 
 import { BufferReader } from "@nasselk/binarypack";
 
-import { FieldType } from "../src/types.js";
+import { field } from "../src/fields.js";
 
 import { defineSchemas } from "../src/validation.js";
 
 const { Lists } = defineSchemas({
 	Lists: {
 		fields: {
-			numbers: { type: FieldType.Integer, bits: 16, list: true },
-			flags: { type: FieldType.Boolean, list: true },
-			names: { type: FieldType.String, list: true },
-			blobs: { type: FieldType.Buffer, list: true },
+			numbers: field.integer(16, { list: true }),
+			flags: field.boolean({ list: true }),
+			names: field.string({ list: true }),
+			blobs: field.buffer({ list: true }),
 		},
 	},
 });

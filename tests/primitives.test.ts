@@ -2,23 +2,23 @@ import { describe, expect, test } from "bun:test";
 
 import { BufferReader } from "@nasselk/binarypack";
 
-import { FieldType } from "../src/types.js";
+import { field } from "../src/fields.js";
 
 import { defineSchemas } from "../src/validation.js";
 
 const { Primitives } = defineSchemas({
 	Primitives: {
 		fields: {
-			flag: { type: FieldType.Boolean },
-			byteUnsigned: { type: FieldType.Integer, bits: 8 },
-			byteSigned: { type: FieldType.Integer, bits: 8, signed: true },
-			nibble: { type: FieldType.Integer, bits: 4 },
-			tribble: { type: FieldType.Integer, bits: 3, signed: true },
-			half: { type: FieldType.Float16 },
-			single: { type: FieldType.Float32 },
-			double: { type: FieldType.Float64 },
-			label: { type: FieldType.String },
-			payload: { type: FieldType.Buffer },
+			flag: field.boolean(),
+			byteUnsigned: field.integer(8),
+			byteSigned: field.integer(8, { signed: true }),
+			nibble: field.integer(4),
+			tribble: field.integer(3, { signed: true }),
+			half: field.float16(),
+			single: field.float32(),
+			double: field.float64(),
+			label: field.string(),
+			payload: field.buffer(),
 		},
 	},
 });
@@ -26,7 +26,7 @@ const { Primitives } = defineSchemas({
 const { TailString } = defineSchemas({
 	TailString: {
 		fields: {
-			text: { type: FieldType.String, includeSize: false },
+			text: field.string({ includeSize: false }),
 		},
 	},
 });
@@ -34,7 +34,7 @@ const { TailString } = defineSchemas({
 const { TailBuffer } = defineSchemas({
 	TailBuffer: {
 		fields: {
-			raw: { type: FieldType.Buffer, includeSize: false },
+			raw: field.buffer({ includeSize: false }),
 		},
 	},
 });

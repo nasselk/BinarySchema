@@ -1,10 +1,27 @@
-import { type Schema, type DecodedData, FieldType } from "../types.js";
+import { type SchemaDefinition, type DecodedData, FieldType } from "../types.js";
 
 import { BufferReader } from "@nasselk/binarypack";
 
 import { FIXED_FIELDS_METHODS } from "./utils.js";
 
-export function compileDecoder<T extends Schema>(schema: T): (reader?: BufferReader) => DecodedData<T> {
+import { compileDirectRead, DIRECT_ENABLED } from "./direct.js";
+
+// Reads one object from a reader
+type ReadFunction = (reader: BufferReader) => any;
+
+export function compileDecoder<T extends SchemaDefinition>(schema: T): (reader: BufferReader) => DecodedData<T> {
+	const legacy = compileReadFunction(schema);
+
+	return DIRECT_ENABLED ? compileDirectRead(schema, legacy) : legacy; // EXPERIMENT: see direct.ts
+}
+
+/**
+ * Generates the read function for one level of fields. Nested objects get their own read function,
+ * called with the same reader.
+ */
+function compileReadFunction(schema: SchemaDefinition): ReadFunction {
+	const children: ReadFunction[] = [];
+
 	let body = `
 		const data = {};
 	`;
@@ -98,6 +115,16 @@ export function compileDecoder<T extends Schema>(schema: T): (reader?: BufferRea
 
 				break;
 			}
+
+			case FieldType.Object: {
+				const index = children.push(compileReadFunction({ fields: field.fields })) - 1;
+
+				body += `
+					children[${index}](reader)
+				`;
+
+				break;
+			}
 		}
 
 		if (field.list) {
@@ -113,6 +140,7 @@ export function compileDecoder<T extends Schema>(schema: T): (reader?: BufferRea
             `;
 		}
 
+		// A field with a default is always present after decoding, even if it was optional and left out
 		if ((field as any).default !== undefined) {
 			body += `
 			if (data.${name} === undefined) {
@@ -126,9 +154,6 @@ export function compileDecoder<T extends Schema>(schema: T): (reader?: BufferRea
 		return data;
 	`;
 
-	const compiled = new Function("reader", body);
-
-	return function (reader?: BufferReader): DecodedData<T> {
-		return compiled(reader);
-	};
+	// A closure over `children`, so nested read functions are called directly
+	return new Function("children", `return function (reader) {${body}}`)(children) as ReadFunction;
 }

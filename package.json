@@ -33,17 +33,22 @@
 	"scripts": {
 		"build": "tsc",
 		"test": "bun test",
-		"types:check": "tsc --noEmit",
-		"biome:check": "biome check --write"
+		"types:check": "tsc --noEmit && tsc -p tsconfig.test.json",
+		"biome:check": "biome check --write",
+		"bench": "bun bench/bench.ts",
+		"bench:node": "bun build bench/bench.ts --target=node --outfile bench/.out/bench.mjs && node bench/.out/bench.mjs"
 	},
 	"dependencies": {
 		"@nasselk/binarypack": "github:nasselk/BinaryPack"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.5.8",
+		"@biomejs/biome": "^2.6.3",
+		"@colyseus/schema": "^5.0.42",
 		"@msgpack/msgpack": "^3.1.3",
-		"@types/bun": "^1.3.14",
-		"protobufjs": "^8.7.2",
+		"@types/bun": "^1.4.4",
+		"avsc": "^5.7.9",
+		"flatbuffers": "^25.9.23",
+		"protobufjs": "^8.8.1",
 		"typescript": "^7.0.2"
 	}
 }

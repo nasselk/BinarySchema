@@ -2,19 +2,19 @@ import { describe, expect, test } from "bun:test";
 
 import { BufferReader } from "@nasselk/binarypack";
 
-import { FieldType } from "../src/types.js";
+import { field } from "../src/fields.js";
 
 import { defineSchemas } from "../src/validation.js";
 
 const { FixedInts } = defineSchemas({
 	FixedInts: {
 		fields: {
-			i8: { type: FieldType.Int8 },
-			u8: { type: FieldType.Uint8 },
-			i16: { type: FieldType.Int16 },
-			u16: { type: FieldType.Uint16 },
-			i32: { type: FieldType.Int32 },
-			u32: { type: FieldType.Uint32 },
+			i8: field.int8(),
+			u8: field.uint8(),
+			i16: field.int16(),
+			u16: field.uint16(),
+			i32: field.int32(),
+			u32: field.uint32(),
 		},
 	},
 });
@@ -22,7 +22,7 @@ const { FixedInts } = defineSchemas({
 const { RangedFixedInt } = defineSchemas({
 	RangedFixedInt: {
 		fields: {
-			level: { type: FieldType.Uint8, min: 1, max: 10, default: 1 },
+			level: field.uint8({ min: 1, max: 10, default: 1 }),
 		},
 	},
 });

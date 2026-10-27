@@ -113,10 +113,12 @@ export function compileEncoder(schema, bitLength) {
     body += `
 		}
 	`;
-    if (schema.metadata?.prefix !== undefined) {
-        body += `
-			writer.writeUint8(${schema.metadata.prefix});
-		`;
+    if (schema.metadata?.prefix?.length) {
+        for (const prefix of schema.metadata.prefix) {
+            body += `
+				writer.writeUint8(${prefix});
+			`;
+        }
     }
     for (const [name, field] of Object.entries(schema.fields)) {
         if (field.dependencies?.length || field.optional) {

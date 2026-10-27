@@ -2,15 +2,15 @@ import { describe, expect, test } from "bun:test";
 
 import { BufferReader, BufferWriter } from "@nasselk/binarypack";
 
-import { FieldType } from "../src/types.js";
+import { field } from "../src/fields.js";
 
 import { defineSchemas } from "../src/validation.js";
 
 const { Point } = defineSchemas({
 	Point: {
 		fields: {
-			x: { type: FieldType.Integer, bits: 16, signed: true },
-			y: { type: FieldType.Integer, bits: 16, signed: true },
+			x: field.integer(16, { signed: true }),
+			y: field.integer(16, { signed: true }),
 		},
 	},
 });
@@ -18,8 +18,8 @@ const { Point } = defineSchemas({
 const { Named } = defineSchemas({
 	Named: {
 		fields: {
-			label: { type: FieldType.String },
-			value: { type: FieldType.Integer, bits: 8 },
+			label: field.string(),
+			value: field.integer(8),
 		},
 	},
 });

@@ -65,7 +65,7 @@ export type Schema<T extends Record<string, Field<T>> = Record<string, Field<any
     fields: T;
     metadata?: {
         repeated?: boolean;
-        prefix?: number;
+        prefix?: number[];
     };
     /**
      * Encodes the given data according to the schema and returns the output buffer.
@@ -119,7 +119,7 @@ export type SchemaInput<T extends {
         fields: Record<string, Field<T[K]["fields"]>>;
         metadata?: {
             repeated?: boolean;
-            prefix?: number;
+            prefix?: number[];
         };
     };
 };

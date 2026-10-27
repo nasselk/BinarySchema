@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
 
-import { FieldType } from "../src/types.js";
+import { field } from "../src/fields.js";
 
 import { defineSchemas } from "../src/validation.js";
 
 const { Ranged } = defineSchemas({
 	Ranged: {
 		fields: {
-			age: { type: FieldType.Integer, bits: 8, min: 0, max: 120 },
-			ratio: { type: FieldType.Float32, min: 0, max: 1 },
-			code: { type: FieldType.String, pattern: /^[A-Z]{3}$/ },
-			shortText: { type: FieldType.String, minLength: 2, maxLength: 5 },
-			tag: { type: FieldType.Buffer, minLength: 1, maxLength: 4 },
+			age: field.integer(8, { min: 0, max: 120 }),
+			ratio: field.float32({ min: 0, max: 1 }),
+			code: field.string({ pattern: /^[A-Z]{3}$/ }),
+			shortText: field.string({ minLength: 2, maxLength: 5 }),
+			tag: field.buffer({ minLength: 1, maxLength: 4 }),
 		},
 	},
 });
