@@ -4,7 +4,7 @@ import { BufferReader } from "@nasselk/binarypack";
 
 import { field } from "../src/fields.js";
 
-import { defineSchemas } from "../src/validation.js";
+import { defineSchemas } from "../src/define.js";
 
 const { Tagged } = defineSchemas({
 	Tagged: {

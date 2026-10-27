@@ -1,10 +1,9 @@
 import type { BufferReader } from "@nasselk/binarypack";
-
-import type { Field } from "../fields.js";
-
+import { type Field, isConditional, isOptional } from "../fields.js";
 import { type DecodedData, FieldType, type SchemaDefinition } from "../types.js";
-
-import { copyFloatBytes, countBits, F16, FIXED_BYTES, isConditional, isOptional, key, literal, loadBytes, Names, RUNTIME_HELPERS, sourceUrl } from "./utils.js";
+import { countBits, minimumBits } from "../sizes.js";
+import { copyFloatBytes, key, literal, loadBytes, Names, sourceUrl } from "./codegen.js";
+import { F16, RUNTIME_HELPERS } from "./runtime.js";
 
 /**
  * Decoders are generated per schema: straight-line code that reads bytes directly from the reader's buffer,
@@ -145,7 +144,7 @@ function listCode(field: Field, label: string, target: string, littleEndian: boo
 	const list = names.next("list", label);
 	const index = names.next("index", label);
 	const item = names.next("item", label);
-	const minimumBits = minimumBitsOf(field);
+	const itemBits = minimumBits(field);
 
 	let code: string;
 
@@ -158,8 +157,8 @@ function listCode(field: Field, label: string, target: string, littleEndian: boo
 	}
 
 	// Reject absurd counts (corrupt or hostile data) before allocating
-	if (minimumBits > 0) {
-		code += `if (${count} * ${minimumBits} > ((end - offset) << 3) + 8) throw new RangeError("Read out of bounds: list '${label}' claims " + ${count} + " items");\n`;
+	if (itemBits > 0) {
+		code += `if (${count} * ${itemBits} > ((end - offset) << 3) + 8) throw new RangeError("Read out of bounds: list '${label}' claims " + ${count} + " items");\n`;
 	}
 
 	code += `const ${list} = new Array(${count});\n`;
@@ -265,37 +264,5 @@ function readValueCode(field: Field, target: string, label: string, littleEndian
 
 			return `{\n${nested.code}${target} = ${nested.object};\n}`;
 		}
-	}
-}
-
-/** Fewest bits one list item can take (0 when it can be empty), to reject absurd list counts before allocating. */
-function minimumBitsOf(field: Field): number {
-	switch (field.type) {
-		case FieldType.Boolean:
-			return 1;
-
-		case FieldType.Integer:
-			return field.bits;
-
-		case FieldType.String:
-		case FieldType.Buffer:
-			return field.includeSize ? 16 : 0;
-
-		case FieldType.Object: {
-			let bits = 0;
-
-			for (const child of Object.values(field.fields)) {
-				if (isOptional(child)) {
-					bits += 1;
-				} else if (!child.dependencies?.length) {
-					bits += child.list ? 16 : minimumBitsOf(child);
-				}
-			}
-
-			return bits;
-		}
-
-		default:
-			return FIXED_BYTES[field.type]! * 8;
 	}
 }

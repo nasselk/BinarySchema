@@ -1,10 +1,11 @@
-import { type SchemaInput, type SchemaOutput } from "./types.js";
+import { type Field } from "./fields.js";
+type Fields = Record<string, Field>;
 /**
- * Defines a set of schemas and returns an object containing the compiled schemas.
+ * Validates one level of fields and returns a validated copy, ordered so dependencies come first.
+ * Nested object fields are prepared recursively. The input is never modified.
  *
- * @param schemas An object where each key is a schema name and the value is a schema definition. The definitions are not modified.
- *
- * @returns An object with the same keys, each value exposing `encode`, `decode`, `minByteLength` and `maxByteLength`.
+ * @param path Prefix for field names in error messages, e.g. "position." for fields of a nested `position`.
  */
-export declare function defineSchemas<const T extends SchemaInput<T>>(schemas: T): SchemaOutput<T>;
+export declare function prepareFields(input: Fields, path: string): Fields;
+export {};
 //# sourceMappingURL=validation.d.ts.map

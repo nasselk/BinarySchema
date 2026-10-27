@@ -102,6 +102,12 @@ export type Field =
 	| (BufferFieldOptions & { type: FieldType.Buffer })
 	| (ObjectFieldOptions & { type: FieldType.Object; fields: Record<string, Field> });
 
+/** Whether a field has a presence bit (Boolean fields have no `optional` option at all). */
+export const isOptional = (field: Field): boolean => "optional" in field && field.optional === true;
+
+/** Whether a field may be left out of a message: optional, or dependent on Boolean siblings. */
+export const isConditional = (field: Field): boolean => isOptional(field) || Boolean(field.dependencies?.length);
+
 // The type of each builder's `options` parameter:
 // - `& Allowed` keeps editor suggestions working (with only the generic, TypeScript suggests from what's typed so far);
 // - the mapped part rejects unknown option names even when mixed with valid ones, which TypeScript lets through otherwise.

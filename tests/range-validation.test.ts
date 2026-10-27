@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { field } from "../src/fields.js";
 
-import { defineSchemas } from "../src/validation.js";
+import { defineSchemas } from "../src/define.js";
 
 const { Ranged } = defineSchemas({
 	Ranged: {

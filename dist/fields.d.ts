@@ -86,6 +86,10 @@ export type Field = (IntegerFieldOptions & {
     type: FieldType.Object;
     fields: Record<string, Field>;
 });
+/** Whether a field has a presence bit (Boolean fields have no `optional` option at all). */
+export declare const isOptional: (field: Field) => boolean;
+/** Whether a field may be left out of a message: optional, or dependent on Boolean siblings. */
+export declare const isConditional: (field: Field) => boolean;
 type OptionsParameter<Options, Allowed> = Allowed & {
     [K in keyof Options]: K extends keyof Allowed ? Options[K] : {
         error: `\`${K & string}\` is not an option of this field type`;

@@ -8,7 +8,7 @@ import { field } from "../src/fields.js";
 
 import type { DecodedData, EncodedData } from "../src/types.js";
 
-import { defineSchemas } from "../src/validation.js";
+import { defineSchemas } from "../src/define.js";
 
 // Exact type equality (not just assignability), and a deep flatten so intersections compare equal to plain objects
 type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? true : false;

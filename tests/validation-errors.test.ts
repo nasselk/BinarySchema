@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { field } from "../src/fields.js";
 
-import { defineSchemas } from "../src/validation.js";
+import { defineSchemas } from "../src/define.js";
 
 describe("schema definition validation", () => {
 	test("integer fields must declare a positive bit width", () => {

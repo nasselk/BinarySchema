@@ -31,9 +31,9 @@
 		"node": ">=20"
 	},
 	"scripts": {
-		"build": "tsc",
-		"test": "bun test",
-		"types:check": "tsc --noEmit && tsc -p tsconfig.test.json",
+		"build": "rm -rf dist && tsc",
+		"format": "biome format --write",
+		"lint": "biome lint --write",
 		"biome:check": "biome check --write",
 		"bench": "bun bench/bench.ts",
 		"bench:node": "bun build bench/bench.ts --target=node --outfile bench/.out/bench.mjs && node bench/.out/bench.mjs"

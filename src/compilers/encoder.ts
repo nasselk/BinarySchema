@@ -1,10 +1,14 @@
-import type { BufferWriter } from "@nasselk/binarypack";
+import { BufferWriter } from "@nasselk/binarypack";
 
-import type { Field } from "../fields.js";
+import { type Field, isConditional, isOptional } from "../fields.js";
 
 import { type EncodedData, FieldType, type SchemaDefinition } from "../types.js";
 
-import { copyFloatBytes, countBits, F16, FIXED_BYTES, FIXED_INTEGER_BOUNDS, isConditional, isOptional, key, literal, Names, RUNTIME_HELPERS, sourceUrl, storeBytes } from "./utils.js";
+import { countBits, FIXED_BITS, fixedValueSize } from "../sizes.js";
+
+import { copyFloatBytes, FIXED_INTEGER_BOUNDS, key, literal, Names, rangeCheckCode, sourceUrl, storeBytes } from "./codegen.js";
+
+import { F16, RUNTIME_HELPERS } from "./runtime.js";
 
 /**
  * Encoders are generated per schema: straight-line code that writes bytes directly into the writer's buffer,
@@ -27,34 +31,11 @@ interface WriterLike {
 	expand(bytes: number): unknown;
 }
 
-/** The reusable writer behind `encode(data)`: never returned to the caller (they get a copy), so reusing it is safe. */
-class ScratchWriter implements WriterLike {
-	buffer = new Uint8Array(1024);
-	byteLength = 1024;
-	offset = 0;
-	bitOffset = 0;
-	bitIndex = 0;
-	readonly resizable = true;
-	readonly endianness = true;
-
-	expand(bytes: number): void {
-		const grown = new Uint8Array(this.byteLength + bytes);
-
-		grown.set(this.buffer);
-		this.buffer = grown;
-		this.byteLength = grown.length;
-	}
-
-	reset(): void {
-		this.offset = 0;
-		this.bitOffset = 0;
-		this.bitIndex = 0;
-	}
-}
-
+// The reusable writer behind `encode(data)`: never returned to the caller (they get a copy), so reusing it is safe
+const SCRATCH_SIZE = 1024;
 const SCRATCH_MAX_SIZE = 64 * 1024;
 
-let scratch = new ScratchWriter();
+let scratch = new BufferWriter(SCRATCH_SIZE, true);
 
 interface encoder<T extends SchemaDefinition> {
 	(data: EncodedData<T>): Uint8Array;
@@ -76,12 +57,12 @@ export function compileEncoder<T extends SchemaDefinition>(schema: T, schemaName
 		// Otherwise write into the scratch writer and return a copy of the written bytes
 		scratch.reset();
 
-		const byteLength = littleEndian(data, scratch);
+		const byteLength = littleEndian(data, scratch as unknown as WriterLike);
 		const bytes = scratch.buffer.slice(0, byteLength);
 
 		// One huge message shouldn't keep a huge buffer alive forever
 		if (scratch.byteLength > SCRATCH_MAX_SIZE) {
-			scratch = new ScratchWriter();
+			scratch = new BufferWriter(SCRATCH_SIZE, true);
 		}
 
 		return bytes;
@@ -155,7 +136,7 @@ function sizeCode(fields: Record<string, Field>, data: string, path: string, nam
 		if (field.list) {
 			const list = names.next("sizeList", label);
 			const item = names.next("sizeItem", label);
-			const fixed = fixedSize(field);
+			const fixed = fixedValueSize(field);
 
 			// The item count: bit-packed when maxItems is set, 2 bytes otherwise
 			const countSize = field.maxItems !== undefined ? `sizeBits += ${countBits(field.maxItems)};` : "sizeBytes += 2;";
@@ -192,26 +173,7 @@ function valueSizeCode(field: Field, value: string, label: string, names: Names)
 		}
 
 		default:
-			return `sizeBytes += ${FIXED_BYTES[field.type]};`;
-	}
-}
-
-/** Size of one value when it doesn't depend on the data (null for strings, buffers and objects). */
-function fixedSize(field: Field): { bytes: number; bits: number } | null {
-	switch (field.type) {
-		case FieldType.Boolean:
-			return { bytes: 0, bits: 1 };
-
-		case FieldType.Integer:
-			return { bytes: 0, bits: field.bits };
-
-		case FieldType.String:
-		case FieldType.Buffer:
-		case FieldType.Object:
-			return null;
-
-		default:
-			return { bytes: FIXED_BYTES[field.type]!, bits: 0 };
+			return `sizeBytes += ${FIXED_BITS[field.type]! / 8};`;
 	}
 }
 
@@ -303,11 +265,7 @@ function writeValueCode(field: Field, value: string, label: string, littleEndian
 			const max = signed ? 2 ** (bits - 1) - 1 : 2 ** bits - 1;
 			const remaining = names.next("bitsValue", label); // the bits of the value not written yet
 
-			let code = "";
-
-			if (field.min !== undefined || field.max !== undefined) {
-				code += `if (${value} !== undefined && (${value} < ${field.min ?? "-Infinity"} || ${value} > ${field.max ?? "Infinity"})) throw new RangeError("Field '${label}' is out of range, expected [${field.min ?? "-Infinity"}, ${field.max ?? "Infinity"}], got " + ${value});\n`;
-			}
+			let code = rangeCheckCode(value, field.min, field.max, label);
 
 			code += `let ${remaining} = ${withDefault} ?? 0;\n`;
 			code += `if (${remaining} < ${min} || ${remaining} > ${max}) throw new RangeError("Field '${label}': value " + ${remaining} + " is out of range for ${bits} bits [ ${min}, ${max} ]");\n`;
@@ -334,11 +292,7 @@ function writeValueCode(field: Field, value: string, label: string, littleEndian
 			const max = field.max ?? bounds?.max;
 			const number = names.next("number", label);
 
-			let code = "";
-
-			if (min !== undefined || max !== undefined) {
-				code += `if (${value} !== undefined && (${value} < ${min ?? -Infinity} || ${value} > ${max ?? Infinity})) throw new RangeError("Field '${label}' is out of range, expected [${min ?? -Infinity}, ${max ?? Infinity}], got " + ${value});\n`;
-			}
+			let code = rangeCheckCode(value, min, max, label);
 
 			code += `const ${number} = ${withDefault} ?? 0;\n`;
 

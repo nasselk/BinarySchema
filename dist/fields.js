@@ -1,6 +1,10 @@
 import { FieldType } from "./types.js";
 /** Marks fields made with the `field` builders. `defineSchemas` only accepts fields that carry it. */
 export const fieldBrand = Symbol("binaryschema.field");
+/** Whether a field has a presence bit (Boolean fields have no `optional` option at all). */
+export const isOptional = (field) => "optional" in field && field.optional === true;
+/** Whether a field may be left out of a message: optional, or dependent on Boolean siblings. */
+export const isConditional = (field) => isOptional(field) || Boolean(field.dependencies?.length);
 function build(definition) {
     return Object.assign(definition, { [fieldBrand]: true });
 }

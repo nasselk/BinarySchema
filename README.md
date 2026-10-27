@@ -1,15 +1,15 @@
 # BinarySchema
 
-BinarySchema is a TypeScript library for **declarative JSON-to-binary encoding**. You describe your data as a schema — field names, types, bit widths, constraints — and it compiles a dedicated encoder/decoder pair for that exact shape, with full TypeScript type inference for the resulting data.
+BinarySchema is a TypeScript library for **declarative JSON-to-binary encoding**. You describe your data as a schema — field names, types, bit widths, constraints — and it compiles dedicated `encode`/`decode` functions for that exact shape that read and write bytes directly, with full TypeScript type inference for the data.
 
-Each schema is compiled into dedicated `encode`/`decode` functions that read and write bytes directly — not a generic runtime interpreter. [BinaryPack](https://github.com/nasselk/BinaryPack)'s `BufferWriter`/`BufferReader` are used as the containers when you want to pack several messages into one buffer or read a prefix byte yourself.
+[BinaryPack](https://github.com/nasselk/BinaryPack)'s `BufferWriter`/`BufferReader` are used as the containers when you want to pack several messages into one buffer or read a prefix byte yourself.
 
 ## Overview
 
 - Schema-first: define `fields` once with the `field` builders, get `encode`/`decode` plus fully inferred TypeScript types for the data
-- Bit-level packing for generic integers (1-53 bits), plus dedicated byte-aligned fixed-width int types
+- Bit-level packing for integers of any width from 1 to 32 bits and for booleans, plus byte-aligned fixed-width numbers
 - Optional fields, field-to-field dependencies, and default values, each with different wire-format costs
-- Arrays via `list: true` on any field type
+- Lists via `list: true` on any field type (with an optional `maxItems` limit), and nested objects to any depth
 - Validated at schema-definition time (bad bit widths, out-of-range defaults, circular dependencies, ...) and at encode time (range/length/pattern checks)
 - Encoders/decoders are generated once per schema via `new Function(...)`, not interpreted per call: straight-line code that writes and reads bytes directly, with one capacity check per message
 
@@ -24,7 +24,7 @@ Each schema is compiled into dedicated `encode`/`decode` functions that read and
 - [Lists](#lists)
 - [Nested objects](#nested-objects)
 - [Shared writer/reader (packet framing)](#shared-writerreader-packet-framing)
-- [The `metadata.prefix` byte](#the-metadataprefix-byte)
+- [The `metadata.prefix` bytes](#the-metadataprefix-bytes)
 - [Validation](#validation)
 - [Building / running locally](#building--running-locally)
 - [Releasing](#releasing)
@@ -116,14 +116,14 @@ Fields can be stored in variables and reused. The builders keep exact types, so 
 Options shared by every field type:
 
 ```ts
-list?: boolean,              // an array of values, prefixed with a 2-byte count
+list?: boolean,              // an array of values, prefixed with an item count (2 bytes, or fewer bits with maxItems)
 maxItems?: number,           // with list: at most this many items (the count then takes only the bits it needs)
 dependencies?: string[],     // only sent when these Boolean sibling fields are true
 ```
 
 ### `field.integer(bits, options?)` — generic bit-packed integer
 
-For when you need a specific, non-byte-aligned bit width (e.g. a 3-bit enum, a 12-bit value). Uses `BufferWriter.writeBits`/`readBits` under the hood. `bits` is required (1-53).
+For when you need a specific, non-byte-aligned bit width (e.g. a 3-bit enum, a 12-bit value). Bit fields are packed together: consecutive booleans and integers share bytes, even across nested objects. `bits` is required (1-32). Signed values are stored offset by the type's minimum, so they're always non-negative on the wire.
 
 ```ts
 field.integer(10, {
@@ -137,7 +137,7 @@ field.integer(10, {
 
 ### `field.int8()` / `uint8()` / `int16()` / `uint16()` / `int32()` / `uint32()` — fixed-width, byte-aligned integers
 
-For the common byte-aligned widths, backed directly by `BufferWriter`/`BufferReader`'s typed methods (`writeUint16`, `readInt32`, ...) instead of the generic bit-packing path — a bit faster, and self-documenting. Each has an intrinsic range (e.g. `uint8` is `[0, 255]`) that's enforced automatically even without an explicit `min`/`max`.
+For the common widths, written as whole bytes (little-endian) rather than bit-packed — slightly faster, and self-documenting. Each has an intrinsic range (e.g. `uint8` is `[0, 255]`) that's enforced automatically even without an explicit `min`/`max`.
 
 ```ts
 field.uint16({
@@ -149,6 +149,8 @@ field.uint16({
 ```
 
 ### `field.float16()` / `float32()` / `float64()`
+
+`float16` stores 2 bytes (about 3 significant digits, range ±65504) and needs `Float16Array`: Bun, Node.js 24+, or a recent browser.
 
 ```ts
 field.float32({
@@ -333,19 +335,24 @@ const decoded = Tagged.decode(reader); // decode() picks up right after it
 
 ## Validation
 
-- **At `defineSchemas` time**: fields made with the `field` builders, positive bit widths, defaults within their declared `min`/`max` (or length bounds/pattern for strings), `dependencies` referencing existing `Boolean` fields, no circular dependencies, `Boolean` fields not marked `optional`, lists requiring `includeSize`.
-- **At `encode()` time**: `min`/`max` range checks (including a fixed-width int type's own intrinsic range, even without an explicit `min`/`max`), string `pattern`/length checks, buffer length checks — all throwing `RangeError` or `Error` with a message naming the offending field.
+- **At `defineSchemas` time**: fields made with the `field` builders, positive bit widths, defaults within their declared `min`/`max` (or length bounds/pattern for strings), `dependencies` referencing existing `Boolean` siblings, no circular dependencies, `Boolean` fields not marked `optional`, lists requiring `includeSize`, `maxItems` only on lists (1 to 65535), no `default` on object fields. Most of these are also caught by TypeScript before you run anything.
+- **At `encode()` time**: `min`/`max` range checks (including a fixed-width int type's own intrinsic range, even without an explicit `min`/`max`), values that don't fit their bit width, string `pattern`/length checks, buffer length checks, lists longer than `maxItems` (or 65535), strings and buffers over 65535 bytes when size-prefixed, missing required nested objects, and writers too small for the message — all throwing `RangeError`, `TypeError` or `Error` with a message naming the offending field by its full path (e.g. `camera.targetId`).
+- **At `decode()` time**: truncated messages, and list counts that exceed `maxItems` or can't fit in the remaining bytes, throw `RangeError` instead of returning garbage.
 
 ## Building / running locally
 
-Requirements: Node.js (v20+) and [Bun](https://bun.sh) for the dev scripts.
+Requirements: [Bun](https://bun.sh) (Node.js 24+ only for `bench:node`).
 
 ```pwsh
-bun install         # install dev dependencies
-bun test            # run the test suite
-bun run build       # compile src/ -> dist/ (JS + .d.ts + sourcemaps)
-bun run types:check # type-check without emitting
-bun run biome:check # format and lint
+bun install          # install dependencies
+bun test             # run the test suite
+bunx tsc --noEmit    # type-check src/
+bun run build        # compile src/ -> dist/ (JS + .d.ts + sourcemaps)
+bun run format       # format with Biome
+bun run lint         # lint with Biome (the linter is currently disabled in biome.json, so this has nothing to check)
+bun run biome:check  # format + lint in one pass, applying fixes
+bun run bench        # size/speed benchmark against protobuf, Avro, FlatBuffers, msgpack, JSON… (Bun)
+bun run bench:node   # the same benchmark on Node.js
 ```
 
 ## Releasing

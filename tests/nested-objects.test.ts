@@ -6,7 +6,7 @@ import { field } from "../src/fields.js";
 
 import type { DecodedData, EncodedData } from "../src/types.js";
 
-import { defineSchemas } from "../src/validation.js";
+import { defineSchemas } from "../src/define.js";
 
 const Vec2 = {
 	x: field.float32(),

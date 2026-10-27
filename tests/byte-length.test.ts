@@ -6,7 +6,7 @@ import { field } from "../src/fields.js";
 
 import type { DecodedData, EncodedData } from "../src/types.js";
 
-import { defineSchemas } from "../src/validation.js";
+import { defineSchemas } from "../src/define.js";
 
 const schemas = defineSchemas({
 	// 1 + 7 bits share one byte, then 2 + 4 bytes: always 7 bytes

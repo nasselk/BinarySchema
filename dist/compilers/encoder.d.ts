@@ -1,4 +1,4 @@
-import type { BufferWriter } from "@nasselk/binarypack";
+import { BufferWriter } from "@nasselk/binarypack";
 import { type EncodedData, type SchemaDefinition } from "../types.js";
 interface encoder<T extends SchemaDefinition> {
     (data: EncodedData<T>): Uint8Array;
