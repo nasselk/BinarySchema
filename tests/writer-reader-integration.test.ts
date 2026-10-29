@@ -2,27 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import { BufferReader, BufferWriter } from "@nasselk/binarypack";
 
-import { field } from "../src/fields.js";
+import schemas from "./schemas/writer-reader.gen.ts";
 
-import { defineSchemas } from "../src/define.js";
-
-const { Point } = defineSchemas({
-	Point: {
-		fields: {
-			x: field.integer(16, { signed: true }),
-			y: field.integer(16, { signed: true }),
-		},
-	},
-});
-
-const { Named } = defineSchemas({
-	Named: {
-		fields: {
-			label: field.string(),
-			value: field.integer(8),
-		},
-	},
-});
+const { Point, Named } = schemas;
 
 describe("standalone encode/decode", () => {
 	test("encode() with no writer returns a self-contained Uint8Array", () => {

@@ -1,79 +1,70 @@
-import { BufferWriter } from "@nasselk/binarypack";
 import { isConditional, isOptional } from "../fields.js";
 import { FieldType } from "../types.js";
 import { countBits, FIXED_BITS, fixedValueSize } from "../sizes.js";
-import { copyFloatBytes, FIXED_INTEGER_BOUNDS, key, literal, Names, rangeCheckCode, sourceUrl, storeBytes } from "./codegen.js";
-import { F16, RUNTIME_HELPERS } from "./runtime.js";
-// The reusable writer behind `encode(data)`: never returned to the caller (they get a copy), so reusing it is safe
-const SCRATCH_SIZE = 1024;
-const SCRATCH_MAX_SIZE = 64 * 1024;
-let scratch = new BufferWriter(SCRATCH_SIZE, true);
-export function compileEncoder(schema, schemaName = "schema") {
-    const littleEndian = compileWriteFunction(schema, schemaName, true);
-    let bigEndian; // compiled the first time a big-endian writer is used
-    function encodeFunction(data, writer) {
-        // Caller passed their own writer: write into it and return the byte count
-        if (writer) {
-            const target = writer;
-            return target.endianness === false ? (bigEndian ??= compileWriteFunction(schema, schemaName, false))(data, target) : littleEndian(data, target);
-        }
-        // Otherwise write into the scratch writer and return a copy of the written bytes
-        scratch.reset();
-        const byteLength = littleEndian(data, scratch);
-        const bytes = scratch.buffer.slice(0, byteLength);
-        // One huge message shouldn't keep a huge buffer alive forever
-        if (scratch.byteLength > SCRATCH_MAX_SIZE) {
-            scratch = new BufferWriter(SCRATCH_SIZE, true);
-        }
-        return bytes;
-    }
-    return encodeFunction;
-}
+import { BitWriter } from "./bits.js";
+import { commentText, copyFloatBytes, escape, FIXED_INTEGER_BOUNDS, key, literal, Names, rangeCheckCode, storeBytes } from "./codegen.js";
 /*
  * Variables in the generated code:
+ *   target      the writer: the caller's, or the shared scratch writer
  *   buffer      the writer's bytes
  *   offset      next byte to write
- *   bitByte     byte holding the bits written so far (only meaningful while bitIndex > 0)
- *   bitIndex    bits already used in bitByte (0 = no partial byte)
+ *   bitByte / bitIndex   the partial byte of bit fields (see bits.ts)
  *   sizeBytes / sizeBits   worst-case size of the message, computed first
  *   value_<field>, present_<field>, list_<field>, item_<field>, ...   per-field locals, named after the field path
  */
-function compileWriteFunction(schema, schemaName, littleEndian) {
-    const names = new Names();
+export function encoderSource(schema, context) {
+    const names = new Names(["data", "writer", "target", "buffer", "offset", "bitByte", "bitIndex", "start", "sizeBytes", "sizeBits", "worstCase", "byteLength"]);
+    const bits = new BitWriter();
     const prefix = schema.metadata?.prefix ?? [];
-    const body = `
-		// Worst-case size of this message, so capacity is checked once instead of on every write
-		let sizeBytes = ${prefix.length};
-		let sizeBits = 0;
-		${sizeCode(schema.fields, "data", "", names)}
-		const worstCase = sizeBytes + ((sizeBits + 7) >> 3);
+    const data = Object.keys(schema.fields).length > 0 ? "data" : "_data";
+    const { name, inputType } = context;
+    const body = writeCode(schema.fields, "data", "", names, context, bits);
+    const end = bits.end("target");
+    return `
+		function ${name}(data: ${inputType}): Uint8Array;
+		function ${name}(data: ${inputType}, writer: BufferWriter): number;
+		function ${name}(${data}: ${inputType}, writer?: BufferWriter): Uint8Array | number {
+			const target = writer ?? scratchWriter();
 
-		// Grow once if needed. A writer that can't grow still gets a try (the actual size is often smaller
-		// than the worst case); writes past its end are dropped and caught by the check at the end.
-		if (writer.offset + worstCase > writer.byteLength && writer.resizable) {
-			writer.expand(Math.max(writer.offset + worstCase - writer.byteLength, writer.byteLength));
-		}
+				// Worst-case size of this message, so capacity is checked once instead of on every write
+				let sizeBytes = ${prefix.length};
+				let sizeBits = 0;
+				${sizeCode(schema.fields, "data", "", names)}
+				const worstCase = sizeBytes + ((sizeBits + 7) >> 3);
 
-		let buffer = writer.buffer;
-		let offset = writer.offset;
-		let bitByte = writer.bitOffset;
-		let bitIndex = writer.bitIndex;
-		const start = offset;
+				// Grow once if needed. A writer that can't grow still gets a try (the actual size is often smaller
+				// than the worst case); writes past its end are dropped and caught by the check at the end.
+				if (target.offset + worstCase > target.byteLength && target.resizable) {
+					target.expand(Math.max(target.offset + worstCase - target.byteLength, target.byteLength));
+				}
 
-		${prefix.map((byte) => `buffer[offset++] = ${byte};`).join("\n")}
-		${writeCode(schema.fields, "data", "", littleEndian, names)}
+				const buffer = target.buffer;
+				let offset = target.offset;
+				${bits.declarations(body + end)}const start = offset;
+				${prefix.length ? `\n// Prefix\n${prefix.map((byte) => `buffer[offset++] = ${byte};`).join(" ")}` : ""}
+				${body}
 
-		if (offset > buffer.length) throw new RangeError("Buffer overflow: the message needs " + (offset - start) + " bytes but only " + (buffer.length - start) + " are left");
+				if (offset > buffer.length) throw new RangeError("Buffer overflow: the message needs " + (offset - start) + " bytes but only " + (buffer.length - start) + " are left");
 
-		writer.offset = offset;
-		writer.bitOffset = bitIndex === 0 ? offset : bitByte;
-		writer.bitIndex = bitIndex;
+				target.offset = offset;
+				${end}
 
-		return offset - start;
-	`;
-    const helpers = Object.keys(RUNTIME_HELPERS);
-    const kind = littleEndian ? "encode" : "encode-big-endian";
-    return new Function(...helpers, `return function encode(data, writer) {${body}}${sourceUrl(schemaName, kind)}`)(...Object.values(RUNTIME_HELPERS));
+				const byteLength = offset - start;
+
+				return writer === undefined ? scratchBytes(byteLength) : byteLength;
+			}
+		`;
+}
+/**
+ * `value`, or the field's default when it's undefined, or `zero` when there's no default (so a value missing at
+ * runtime still writes something valid). Booleans need no zero: undefined is already falsy.
+ */
+function withDefault(field, value, zero) {
+    const fallback = field.default;
+    if (fallback !== undefined) {
+        return `(${value} ?? ${literal(fallback)})`;
+    }
+    return field.type === FieldType.Boolean ? value : `(${value} ?? ${zero})`;
 }
 /** Code adding an upper bound of the fields' encoded size: bytes to `sizeBytes`, bits to `sizeBits`. */
 function sizeCode(fields, data, path, names) {
@@ -86,13 +77,18 @@ function sizeCode(fields, data, path, names) {
         }
         if (field.list) {
             const list = names.next("sizeList", label);
-            const item = names.next("sizeItem", label);
             const fixed = fixedValueSize(field);
             // The item count: bit-packed when maxItems is set, 2 bytes otherwise
             const countSize = field.maxItems !== undefined ? `sizeBits += ${countBits(field.maxItems)};` : "sizeBytes += 2;";
-            code += `{ const ${list} = ${value}; ${countSize} if (${list}) {`;
-            code += fixed ? `sizeBytes += ${list}.length * ${fixed.bytes}; sizeBits += ${list}.length * ${fixed.bits};` : `for (const ${item} of ${list}) { ${valueSizeCode(field, item, label, names)} }`;
-            code += "} }\n";
+            code += `{ const ${list} = ${value}; ${countSize} if (${list}) { `;
+            if (fixed) {
+                code += [fixed.bytes ? `sizeBytes += ${list}.length * ${fixed.bytes};` : "", fixed.bits ? `sizeBits += ${list}.length * ${fixed.bits};` : ""].filter(Boolean).join(" ");
+            }
+            else {
+                const item = names.next("sizeItem", label);
+                code += `for (const ${item} of ${list}) { ${valueSizeCode(field, item, label, names)} }`;
+            }
+            code += " } }\n";
         }
         else {
             code += `${valueSizeCode(field, value, label, names)}\n`;
@@ -107,94 +103,88 @@ function valueSizeCode(field, value, label, names) {
         case FieldType.Integer:
             return `sizeBits += ${field.bits};`;
         case FieldType.String:
-            return `sizeBytes += ${field.includeSize ? 2 : 0} + ((${value} ?? ${literal(field.default)})?.length ?? 0) * 3;`;
+            return `sizeBytes += ${field.includeSize ? "2 + " : ""}${withDefault(field, value, '""')}.length * 3;`;
         case FieldType.Buffer:
-            return `sizeBytes += ${field.includeSize ? 2 : 0} + (${value}?.byteLength ?? 0);`;
+            return `sizeBytes += ${field.includeSize ? "2 + " : ""}(${value}?.byteLength ?? 0);`;
         case FieldType.Object: {
             const object = names.next("sizeObject", label);
-            return `{ const ${object} = ${value}; if (${object} != null) { ${sizeCode(field.fields, object, `${label}.`, names)} } }`;
+            return `{\nconst ${object} = ${value};\nif (${object} != null) {\n${sizeCode(field.fields, object, `${label}.`, names)}}\n}`;
         }
         default:
             return `sizeBytes += ${FIXED_BITS[field.type] / 8};`;
     }
 }
-function writeCode(fields, data, path, littleEndian, names) {
+function writeCode(fields, data, path, names, context, bits) {
     let code = "";
     for (const [name, field] of Object.entries(fields)) {
         const label = `${path}${name}`;
         const value = names.next("value", label);
-        const conditional = isConditional(field);
-        code += `\n// ${label}\nconst ${value} = ${data}${key(name)};\n`;
-        if (conditional) {
+        code += `\n// ${commentText(label)}\nconst ${value} = ${data}${key(name)};\n`;
+        if (!isConditional(field)) {
+            code += fieldCode(field, value, label, names, context, bits);
+            continue;
+        }
+        // Dependencies are read with their defaults, exactly like the Boolean values written for them
+        const conditions = (field.dependencies ?? []).map((dependency) => withDefault(fields[dependency], `${data}${key(dependency)}`, "false"));
+        let guard = "";
+        if (isOptional(field)) {
+            // A presence bit, then the value when it's present (and the dependencies are true)
             const present = names.next("present", label);
             code += `const ${present} = ${value} !== undefined;\n`;
-            // Optional fields write a presence bit; dependent ones are decided by their Boolean siblings
-            if (isOptional(field)) {
-                code += `${writeBitCode(`${present} ? 1 : 0`)}\n`;
-            }
-            const dependencies = (field.dependencies ?? []).map((dependency) => ` && ${data}${key(dependency)}`).join("");
-            code += `if (${present}${dependencies}) {\n`;
+            code += bits.bit(`${present} ? 1 : 0`);
+            conditions.unshift(present);
         }
-        if (field.list) {
-            const list = names.next("list", label);
-            const count = names.next("count", label);
-            const item = names.next("item", label);
-            code += `const ${list} = ${value};\nlet ${count} = ${list}.length;\n`;
-            if (field.maxItems !== undefined) {
-                // Bit-packed count, just wide enough for maxItems
-                code += `if (${count} > ${field.maxItems}) throw new RangeError("Field '${label}' has " + ${count} + " items, at most ${field.maxItems} allowed (maxItems)");\n`;
-                code += `${writeBitsCode(count, countBits(field.maxItems), `${label}_count`, names)}\n`;
-            }
-            else {
-                code += `if (${count} > 65535) throw new RangeError("Field '${label}' has " + ${count} + " items, at most 65535 fit in its count");\n`;
-                code += `${storeBytes(count, 2, littleEndian)} offset += 2;\n`;
-            }
-            code += `for (const ${item} of ${list}) {\n${writeValueCode(field, item, label, littleEndian, names)}\n}\n`;
+        else if (field.default === undefined) {
+            // No presence bit: the decoder reads the value whenever the dependencies are true, so it must be there
+            const condition = (field.dependencies ?? []).map(escape).join(" and ");
+            guard = `if (${value} === undefined) throw new TypeError("Field '${escape(label)}' is missing, it's required when ${condition} ${field.dependencies.length > 1 ? "are" : "is"} true");\n`;
         }
-        else {
-            code += `${writeValueCode(field, value, label, littleEndian, names)}\n`;
-        }
-        if (conditional) {
-            code += "}\n";
-        }
+        const block = bits.region(() => fieldCode(field, value, label, names, context, bits), false);
+        code += `${block.before}if (${conditions.join(" && ")}) {\n${guard}${block.body}}\n`;
     }
     return code;
 }
-/**
- * Writes the low `bits` bits of `word` (a `let` variable, consumed in the process), low bits first,
- * filling the current partial byte before starting a new one.
- */
-function writeBitsCode(word, bits, label, names) {
-    const left = names.next("bitsLeft", label);
-    const now = names.next("bitsNow", label);
-    return `for (let ${left} = ${bits}; ${left} > 0; ) { if (bitIndex === 0) { bitByte = offset++; buffer[bitByte] = 0; } const ${now} = ${left} < 8 - bitIndex ? ${left} : 8 - bitIndex; buffer[bitByte] |= (${word} & ((1 << ${now}) - 1)) << bitIndex; ${word} >>>= ${now}; ${left} -= ${now}; bitIndex = (bitIndex + ${now}) & 7; }`;
+/** Writes a field's value (or list of values), once it's known to be sent. */
+function fieldCode(field, value, label, names, context, bits) {
+    if (!field.list) {
+        return `${writeValueCode(field, value, label, names, context, bits)}\n`;
+    }
+    const list = names.next("list", label);
+    const count = names.next("count", label);
+    const item = names.next("item", label);
+    let code = `const ${list} = ${value};\nconst ${count} = ${list}.length;\n`;
+    if (field.maxItems !== undefined) {
+        // Bit-packed count, just wide enough for maxItems
+        code += `if (${count} > ${field.maxItems}) throw new RangeError("Field '${escape(label)}' has " + ${count} + " items, at most ${field.maxItems} allowed (maxItems)");\n`;
+        code += bits.bits(count, countBits(field.maxItems), `${label}_count`, names);
+    }
+    else {
+        code += `if (${count} > 65535) throw new RangeError("Field '${escape(label)}' has " + ${count} + " items, at most 65535 fit in its count");\n`;
+        code += `${storeBytes(count, 2)} offset += 2;\n`;
+    }
+    const loop = bits.region(() => `${writeValueCode(field, item, label, names, context, bits)}\n`, true);
+    return `${code}${loop.before}for (const ${item} of ${list}) {\n${loop.body}}\n`;
 }
-/** Writes one bit (a 0/1 expression), packed into the current partial byte when there is one. */
-function writeBitCode(bit) {
-    return `if (bitIndex === 0) { bitByte = offset; buffer[offset++] = ${bit}; bitIndex = 1; } else { buffer[bitByte] |= (${bit}) << bitIndex; bitIndex = (bitIndex + 1) & 7; }`;
-}
-function writeValueCode(field, value, label, littleEndian, names) {
-    const withDefault = `(${value} ?? ${literal(field.default)})`;
+// Values are checked once their default is applied: the defaults themselves were checked when generating
+function writeValueCode(field, value, label, names, context, bits) {
     switch (field.type) {
         case FieldType.Boolean:
-            return writeBitCode(`${withDefault} ? 1 : 0`);
+            return bits.bit(`${withDefault(field, value, "false")} ? 1 : 0`);
         case FieldType.Integer: {
-            const bits = field.bits;
-            if (bits > 32) {
-                return `throw new RangeError("Field '${label}': bits must be in the range [1, 32]");`;
-            }
+            const width = field.bits;
             const signed = field.signed ?? false;
-            const min = signed ? -(2 ** (bits - 1)) : 0;
-            const max = signed ? 2 ** (bits - 1) - 1 : 2 ** bits - 1;
-            const remaining = names.next("bitsValue", label); // the bits of the value not written yet
-            let code = rangeCheckCode(value, field.min, field.max, label);
-            code += `let ${remaining} = ${withDefault} ?? 0;\n`;
-            code += `if (${remaining} < ${min} || ${remaining} > ${max}) throw new RangeError("Field '${label}': value " + ${remaining} + " is out of range for ${bits} bits [ ${min}, ${max} ]");\n`;
-            // Signed values are stored offset by -min, so they're always non-negative
-            if (signed) {
-                code += `${remaining} -= ${min};\n`;
+            const min = signed ? -(2 ** (width - 1)) : 0;
+            const max = signed ? 2 ** (width - 1) - 1 : 2 ** width - 1;
+            const integer = names.next("integer", label);
+            // One check: the declared bounds, narrowed to what the bits can hold
+            let code = `const ${integer} = ${withDefault(field, value, "0")};\n`;
+            code += rangeCheckCode(integer, Math.max(min, field.min ?? -Infinity), Math.min(max, field.max ?? Infinity), label);
+            if (!signed) {
+                return code + bits.bits(integer, width, label, names);
             }
-            return code + writeBitsCode(remaining, bits, label, names);
+            // Signed values are stored offset by -min, so they're always non-negative
+            const stored = names.next("stored", label);
+            return `${code}const ${stored} = ${integer} + ${-min};\n${bits.bits(stored, width, label, names)}`;
         }
         case FieldType.Int8:
         case FieldType.Uint8:
@@ -206,47 +196,44 @@ function writeValueCode(field, value, label, littleEndian, names) {
         case FieldType.Float32:
         case FieldType.Float64: {
             const bounds = FIXED_INTEGER_BOUNDS[field.type];
-            const min = field.min ?? bounds?.min;
-            const max = field.max ?? bounds?.max;
             const number = names.next("number", label);
-            let code = rangeCheckCode(value, min, max, label);
-            code += `const ${number} = ${withDefault} ?? 0;\n`;
+            // Integer types are also kept within their own range
+            const min = bounds ? Math.max(bounds.min, field.min ?? -Infinity) : field.min;
+            const max = bounds ? Math.min(bounds.max, field.max ?? Infinity) : field.max;
+            let code = `const ${number} = ${withDefault(field, value, "0")};\n`;
+            code += rangeCheckCode(number, min, max, label);
             switch (field.type) {
                 case FieldType.Int8:
                 case FieldType.Uint8:
                     return `${code}buffer[offset++] = ${number};`;
                 case FieldType.Int16:
                 case FieldType.Uint16:
-                    return `${code}${storeBytes(number, 2, littleEndian)} offset += 2;`;
+                    return `${code}${storeBytes(number, 2)} offset += 2;`;
                 case FieldType.Int32:
                 case FieldType.Uint32:
-                    return `${code}${storeBytes(number, 4, littleEndian)} offset += 4;`;
+                    return `${code}${storeBytes(number, 4)} offset += 4;`;
                 case FieldType.Float16:
-                    if (!F16) {
-                        throw new TypeError(`Field "${label}": Float16 fields need Float16Array (Bun, Node 24+ or a recent browser)`);
-                    }
-                    return `${code}F16[0] = ${number}; ${copyFloatBytes("F16B", 2, littleEndian, "toBuffer")} offset += 2;`;
+                    return `${code}F16[0] = ${number}; ${copyFloatBytes("F16B", 2, "toBuffer")} offset += 2;`;
                 case FieldType.Float32:
-                    return `${code}F32[0] = ${number}; ${copyFloatBytes("F32B", 4, littleEndian, "toBuffer")} offset += 4;`;
+                    return `${code}F32[0] = ${number}; ${copyFloatBytes("F32B", 4, "toBuffer")} offset += 4;`;
                 default:
-                    return `${code}F64[0] = ${number}; ${copyFloatBytes("F64B", 8, littleEndian, "toBuffer")} offset += 8;`;
+                    return `${code}F64[0] = ${number}; ${copyFloatBytes("F64B", 8, "toBuffer")} offset += 8;`;
             }
         }
         case FieldType.String: {
             const text = names.next("text", label);
             const length = names.next("length", label);
-            let code = "";
+            let code = `const ${text} = ${withDefault(field, value, '""')};\n`;
             if (field.pattern) {
-                code += `if (${value} !== undefined && !(${field.pattern}.test(${value}))) throw new Error("Field '${label}' does not match pattern: " + (${value}));\n`;
+                // Created once, without the flags that make `test` stateful
+                const pattern = context.constant(`pattern_${label}`, `new RegExp(${JSON.stringify(field.pattern.source)}, ${JSON.stringify(field.pattern.flags.replace(/[gy]/g, ""))})`);
+                code += `if (!${pattern}.test(${text})) throw new Error("Field '${escape(label)}' does not match pattern: " + ${text});\n`;
             }
-            if (field.minLength !== undefined || field.maxLength !== undefined) {
-                code += `if (${value} !== undefined && (${value}.length < ${field.minLength ?? 0} || ${value}.length > ${field.maxLength ?? "Infinity"})) throw new RangeError("Field '${label}' length is out of range, expected [${field.minLength ?? 0}, ${field.maxLength ?? "Infinity"}], got " + ${value}.length);\n`;
-            }
-            code += `const ${text} = ${withDefault} ?? "";\n`;
+            code += rangeCheckCode(`${text}.length`, field.minLength || undefined, field.maxLength, label, "length");
             if (field.includeSize) {
                 code += `const ${length} = writeUtf8(${text}, buffer, offset + 2);\n`;
-                code += `if (${length} > 65535) throw new RangeError("Field '${label}' is too long: " + ${length} + " bytes, at most 65535 fit in its size prefix");\n`;
-                code += `${storeBytes(length, 2, littleEndian)} offset += 2 + ${length};`;
+                code += `if (${length} > 65535) throw new RangeError("Field '${escape(label)}' is too long: " + ${length} + " bytes, at most 65535 fit in its size prefix");\n`;
+                code += `${storeBytes(length, 2)} offset += 2 + ${length};`;
             }
             else {
                 code += `offset += writeUtf8(${text}, buffer, offset);`;
@@ -256,22 +243,19 @@ function writeValueCode(field, value, label, littleEndian, names) {
         case FieldType.Buffer: {
             const bytes = names.next("bytes", label);
             const length = names.next("length", label);
-            let code = "";
-            if (field.minLength !== undefined || field.maxLength !== undefined) {
-                code += `if (${value} !== undefined && (${value}.byteLength < ${field.minLength ?? 0} || ${value}.byteLength > ${field.maxLength ?? Infinity})) throw new RangeError("Field '${label}' length is out of range, expected [${field.minLength ?? 0}, ${field.maxLength ?? Infinity}], got " + ${value}.byteLength);\n`;
-            }
-            code += `const ${bytes} = toBytes(${value});\nconst ${length} = ${bytes}.length;\n`;
+            let code = `const ${bytes} = toBytes(${value});\nconst ${length} = ${bytes}.length;\n`;
+            code += rangeCheckCode(length, field.minLength || undefined, field.maxLength, label, "length");
             if (field.includeSize) {
-                code += `if (${length} > 65535) throw new RangeError("Field '${label}' is too long: " + ${length} + " bytes, at most 65535 fit in its size prefix");\n`;
-                code += `${storeBytes(length, 2, littleEndian)} offset += 2;\n`;
+                code += `if (${length} > 65535) throw new RangeError("Field '${escape(label)}' is too long: " + ${length} + " bytes, at most 65535 fit in its size prefix");\n`;
+                code += `${storeBytes(length, 2)} offset += 2;\n`;
             }
-            code += `if (offset + ${length} > buffer.length) throw new RangeError("Buffer overflow: field '${label}' needs " + ${length} + " bytes");\n`;
+            code += `if (offset + ${length} > buffer.length) throw new RangeError("Buffer overflow: field '${escape(label)}' needs " + ${length} + " bytes");\n`;
             code += `buffer.set(${bytes}, offset); offset += ${length};`;
             return code;
         }
         case FieldType.Object: {
             const object = names.next("object", label);
-            return `const ${object} = ${value};\nif (${object} === undefined || ${object} === null) throw new TypeError("Field '${label}' is missing, expected an object");\n${writeCode(field.fields, object, `${label}.`, littleEndian, names)}`;
+            return `const ${object} = ${value};\nif (${object} === undefined || ${object} === null) throw new TypeError("Field '${escape(label)}' is missing, expected an object");\n${writeCode(field.fields, object, `${label}.`, names, context, bits)}`;
         }
     }
 }

@@ -2,100 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import { BufferReader } from "@nasselk/binarypack";
 
-import { field } from "../src/fields.js";
+import { field, generate } from "../src/index.js";
 
-import type { DecodedData, EncodedData } from "../src/types.js";
-
-import { defineSchemas } from "../src/define.js";
-
-const Vec2 = {
-	x: field.float32(),
-	y: field.float32(),
-};
-
-const Entity = {
-	id: field.uint16(),
-	x: field.float32(),
-	y: field.float32(),
-	hp: field.integer(7, { max: 100 }),
-	stunned: field.boolean(),
-};
-
-const schemas = defineSchemas({
-	Player: {
-		fields: {
-			id: field.uint16(),
-			position: field.object(Vec2),
-			velocity: field.object(Vec2),
-			alive: field.boolean(),
-		},
-	},
-	// Same fields as Player, flattened: must produce identical bytes
-	FlatPlayer: {
-		fields: {
-			id: field.uint16(),
-			px: field.float32(),
-			py: field.float32(),
-			vx: field.float32(),
-			vy: field.float32(),
-			alive: field.boolean(),
-		},
-	},
-	// 1 + 1 + 6 bits across two levels: one byte in total
-	BitsAcrossLevels: {
-		fields: {
-			a: field.boolean(),
-			inner: field.object({
-				b: field.boolean(),
-				n: field.integer(6),
-			}),
-		},
-	},
-	Snapshot: {
-		fields: {
-			tick: field.uint32(),
-			entities: field.object(Entity, { list: true }),
-		},
-	},
-	Attack: {
-		fields: {
-			attackerId: field.uint16(),
-			critical: field.boolean(),
-			target: field.object(
-				{
-					id: field.uint8(),
-					shielded: field.boolean(),
-					shieldHp: field.uint8({ dependencies: ["shielded"] }),
-				},
-				{ optional: true },
-			),
-			critDetails: field.object(
-				{
-					multiplier: field.float32(),
-				},
-				{ dependencies: ["critical"] },
-			),
-		},
-	},
-	Inventory: {
-		fields: {
-			owner: field.uint32(),
-			bags: field.object(
-				{
-					label: field.string({ maxLength: 16 }),
-					items: field.object(
-						{
-							itemId: field.uint16(),
-							count: field.integer(6),
-						},
-						{ list: true },
-					),
-				},
-				{ list: true },
-			),
-		},
-	},
-});
+import schemas, { type Attack, type SnapshotInput } from "./schemas/nested-objects.gen.ts";
 
 const roundTrip = <S extends { encode(data: any): Uint8Array; decode(reader: BufferReader): any }>(schema: S, data: unknown) => schema.decode(new BufferReader(schema.encode(data)));
 
@@ -176,10 +85,9 @@ describe("nested object errors", () => {
 
 	test("definition errors inside nested objects name the full path", () => {
 		expect(() =>
-			defineSchemas({
+			generate({
 				Bad: {
 					fields: {
-						// @ts-expect-error: "nope" is not a sibling of shieldHp
 						target: field.object({
 							shieldHp: field.uint8({ dependencies: ["nope"] }),
 						}),
@@ -192,7 +100,7 @@ describe("nested object errors", () => {
 	test("does not modify nested definitions", () => {
 		const fields = { label: field.string() };
 
-		defineSchemas({ Thing: { fields: { inner: field.object(fields) } } });
+		generate({ Thing: { fields: { inner: field.object(fields) } } });
 
 		expect("includeSize" in fields.label).toBe(false);
 	});
@@ -208,21 +116,21 @@ describe("nested object sizes and types", () => {
 		expect(schemas.BitsAcrossLevels.maxByteLength).toBe(1);
 
 		// list of objects: count only at minimum, unbounded at maximum
-		expect(schemas.Snapshot.minByteLength).toBe(4 + 2);
+		expect<number>(schemas.Snapshot.minByteLength).toBe(4 + 2);
 		expect(schemas.Snapshot.maxByteLength).toBe(Infinity);
 
 		// minimum: attackerId + critical bit + target presence bit; maximum: everything
 		expect(schemas.Attack.minByteLength).toBe(3);
-		expect(schemas.Attack.maxByteLength).toBe(2 + 1 + 1 + 4 + 1);
+		expect<number>(schemas.Attack.maxByteLength).toBe(2 + 1 + 1 + 4 + 1);
 		expect(schemas.Attack.encode({ attackerId: 3, critical: false }).byteLength).toBe(schemas.Attack.minByteLength);
 	});
 
-	test("EncodedData / DecodedData infer nested shapes", () => {
-		const snapshot: EncodedData<typeof schemas.Snapshot> = { tick: 1, entities: [{ id: 1, x: 0, y: 0, hp: 1, stunned: false }] };
-		const decoded: DecodedData<typeof schemas.Attack> = { attackerId: 1, critical: false, target: { id: 1, shielded: false } };
+	test("the generated types spell out nested shapes", () => {
+		const snapshot: SnapshotInput = { tick: 1, entities: [{ id: 1, x: 0, y: 0, hp: 1, stunned: false }] };
+		const decoded: Attack = { attackerId: 1, critical: false, target: { id: 1, shielded: false } };
 
 		// @ts-expect-error: entities items need every field
-		const missingField: EncodedData<typeof schemas.Snapshot> = { tick: 1, entities: [{ id: 1 }] };
+		const missingField: SnapshotInput = { tick: 1, entities: [{ id: 1 }] };
 
 		expect(snapshot.entities.length).toBe(1);
 		expect(decoded.target?.id).toBe(1);

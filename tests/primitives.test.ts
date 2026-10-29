@@ -2,42 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import { BufferReader } from "@nasselk/binarypack";
 
-import { field } from "../src/fields.js";
+import schemas from "./schemas/primitives.gen.ts";
 
-import { defineSchemas } from "../src/define.js";
-
-const { Primitives } = defineSchemas({
-	Primitives: {
-		fields: {
-			flag: field.boolean(),
-			byteUnsigned: field.integer(8),
-			byteSigned: field.integer(8, { signed: true }),
-			nibble: field.integer(4),
-			tribble: field.integer(3, { signed: true }),
-			half: field.float16(),
-			single: field.float32(),
-			double: field.float64(),
-			label: field.string(),
-			payload: field.buffer(),
-		},
-	},
-});
-
-const { TailString } = defineSchemas({
-	TailString: {
-		fields: {
-			text: field.string({ includeSize: false }),
-		},
-	},
-});
-
-const { TailBuffer } = defineSchemas({
-	TailBuffer: {
-		fields: {
-			raw: field.buffer({ includeSize: false }),
-		},
-	},
-});
+const { Primitives, TailString, TailBuffer } = schemas;
 
 describe("primitive field round-trips", () => {
 	test("round-trips one value of every primitive type", () => {

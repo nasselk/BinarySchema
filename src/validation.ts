@@ -61,6 +61,10 @@ function validateField(field: Field, label: string): void {
 		}
 	}
 
+	if (field.list && "default" in field && field.default !== undefined) {
+		throw new Error(`Field "${label}": lists can't have a default; make them optional instead`);
+	}
+
 	switch (field.type) {
 		case FieldType.Boolean: {
 			if (isOptional(field)) {
@@ -73,6 +77,8 @@ function validateField(field: Field, label: string): void {
 		case FieldType.Integer: {
 			if (field.bits === undefined || field.bits <= 0) {
 				throw new Error(`Field "${label}": Number fields must have a positive "bits" value`);
+			} else if (!Number.isInteger(field.bits) || field.bits > 32) {
+				throw new Error(`Field "${label}": "bits" must be a whole number from 1 to 32, got ${field.bits}`);
 			}
 
 			checkDefaultInRange(field, label);
@@ -115,6 +121,8 @@ function validateField(field: Field, label: string): void {
 		case FieldType.Buffer: {
 			if (field.list && field.includeSize === false) {
 				throw new Error(`Field "${label}": Buffer fields cannot be a list without "includeSize" set to true or left to default (true)`);
+			} else if ("default" in field && field.default !== undefined) {
+				throw new Error(`Field "${label}": Buffer fields cannot have a default; make them optional instead`);
 			}
 
 			field.includeSize ??= true;

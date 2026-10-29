@@ -16,7 +16,7 @@ import { BufferReader, BufferWriter } from "@nasselk/binarypack";
 import avro from "avsc";
 import * as flatbuffers from "flatbuffers";
 import protobuf from "protobufjs";
-import { defineSchemas, field } from "../src/index.ts";
+import schemas from "./schemas.gen.ts";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -42,62 +42,8 @@ const sentence = (n: number) => Array.from({ length: n }, () => WORDS[int(0, WOR
 const name = () => `${WORDS[int(0, WORDS.length - 1)]}_${int(0, 9999)}`;
 
 // ---------------------------------------------------------------------------
-// Schemas (same shape in BinarySchema and protobuf)
+// Schemas (BinarySchema ones in bench/schemas.ts, the same shape for every format)
 // ---------------------------------------------------------------------------
-
-const definitions = {
-	// Typical small realtime game packet (the README example).
-	Player: {
-		fields: {
-			id: field.uint16(),
-			x: field.float32({ min: -1000, max: 1000 }),
-			y: field.float32({ min: -1000, max: 1000 }),
-			health: field.integer(7, { min: 0, max: 100 }),
-			name: field.string({ maxLength: 32 }),
-			isAlive: field.boolean(),
-		},
-	},
-	// Lots of booleans and small ints: where bit packing should shine.
-	Input: {
-		fields: {
-			seq: field.integer(12),
-			up: field.boolean(),
-			down: field.boolean(),
-			left: field.boolean(),
-			right: field.boolean(),
-			jump: field.boolean(),
-			crouch: field.boolean(),
-			fire: field.boolean(),
-			reload: field.boolean(),
-			weapon: field.integer(3),
-			aim: field.integer(9, { max: 359 }),
-			hasTarget: field.boolean(),
-			targetId: field.uint16({ dependencies: ["hasTarget"] }),
-		},
-	},
-	// World snapshot: 64 entities as parallel numeric arrays.
-	Snapshot: {
-		fields: {
-			tick: field.uint32(),
-			ids: field.uint16({ list: true }),
-			xs: field.float32({ list: true }),
-			ys: field.float32({ list: true }),
-			hp: field.uint8({ list: true }),
-		},
-	},
-	// Text-heavy message: binary has the least to gain here.
-	Chat: {
-		fields: {
-			userId: field.uint32(),
-			channel: field.uint8(),
-			author: field.string(),
-			text: field.string(),
-			mentions: field.string({ list: true }),
-		},
-	},
-};
-
-const schemas = defineSchemas(definitions);
 
 const proto = protobuf.parse(`
 syntax = "proto3";

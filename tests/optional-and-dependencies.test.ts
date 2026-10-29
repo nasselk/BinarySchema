@@ -2,48 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import { BufferReader } from "@nasselk/binarypack";
 
-import { field } from "../src/fields.js";
+import schemas from "./schemas/optional-and-dependencies.gen.ts";
 
-import { defineSchemas } from "../src/define.js";
-
-const { OptionalFields } = defineSchemas({
-	OptionalFields: {
-		fields: {
-			title: field.string({ optional: true }),
-			count: field.integer(8, { optional: true }),
-		},
-	},
-});
-
-const { DependentFields } = defineSchemas({
-	DependentFields: {
-		fields: {
-			hasBio: field.boolean(),
-			bio: field.string({ dependencies: ["hasBio"] }),
-		},
-	},
-});
-
-// Declares the dependent field before its boolean gate to prove defineSchemas
-// reorders fields so the gate is always decoded/encoded first.
-const { ReorderedDependentFields } = defineSchemas({
-	ReorderedDependentFields: {
-		fields: {
-			nickname: field.string({ dependencies: ["hasNickname"] }),
-			hasNickname: field.boolean(),
-		},
-	},
-});
-
-const { MultiDependencyField } = defineSchemas({
-	MultiDependencyField: {
-		fields: {
-			isPremium: field.boolean(),
-			isVerified: field.boolean(),
-			badge: field.integer(8, { dependencies: ["isPremium", "isVerified"] }),
-		},
-	},
-});
+const { OptionalFields, DependentFields, ReorderedDependentFields, MultiDependencyField, Defaulted } = schemas;
 
 describe("optional fields", () => {
 	test("round-trips present values", () => {
@@ -113,5 +74,34 @@ describe("dependent fields", () => {
 
 		const bothFalse = MultiDependencyField.encode({ isPremium: false, isVerified: false, badge: 3 });
 		expect(MultiDependencyField.decode(new BufferReader(bothFalse)).badge).toBeUndefined();
+	});
+
+	test("a missing dependent field without a default throws when its gates are true", () => {
+		expect(() => DependentFields.encode({ hasBio: true })).toThrow("Field 'bio' is missing, it's required when hasBio is true");
+		expect(() => MultiDependencyField.encode({ isPremium: true, isVerified: true })).toThrow("required when isPremium and isVerified are true");
+	});
+
+	test("gates and dependent fields use their defaults", () => {
+		// The gate defaults to true: the dependent fields are written, the one with a default falls back to it
+		const decoded = Defaulted.decode(new BufferReader(Defaulted.encode({ name: "x" })));
+		expect(decoded).toEqual({ enabled: true, level: 5, name: "x" });
+
+		// The gate is false: nothing else is written, and the default still fills in when decoding
+		const bytes = Defaulted.encode({ enabled: false });
+		expect(bytes.byteLength).toBe(1);
+		expect(Defaulted.decode(new BufferReader(bytes))).toEqual({ enabled: false, level: 5 });
+
+		expect(() => Defaulted.encode({})).toThrow("Field 'name' is missing");
+	});
+	test("decoded objects always have every key, absent ones undefined", () => {
+		const full = Defaulted.decode(new BufferReader(Defaulted.encode({ name: "x" })));
+		const gated = Defaulted.decode(new BufferReader(Defaulted.encode({ enabled: false })));
+
+		expect(Object.keys(gated)).toEqual(Object.keys(full));
+		expect("name" in gated).toBe(true);
+		expect(gated.name).toBeUndefined();
+
+		const empty = OptionalFields.decode(new BufferReader(OptionalFields.encode({})));
+		expect(Object.keys(empty)).toEqual(["title", "count"]);
 	});
 });

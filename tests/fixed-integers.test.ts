@@ -2,30 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import { BufferReader } from "@nasselk/binarypack";
 
-import { field } from "../src/fields.js";
+import schemas from "./schemas/fixed-integers.gen.ts";
 
-import { defineSchemas } from "../src/define.js";
-
-const { FixedInts } = defineSchemas({
-	FixedInts: {
-		fields: {
-			i8: field.int8(),
-			u8: field.uint8(),
-			i16: field.int16(),
-			u16: field.uint16(),
-			i32: field.int32(),
-			u32: field.uint32(),
-		},
-	},
-});
-
-const { RangedFixedInt } = defineSchemas({
-	RangedFixedInt: {
-		fields: {
-			level: field.uint8({ min: 1, max: 10, default: 1 }),
-		},
-	},
-});
+const { FixedInts, RangedFixedInt } = schemas;
 
 describe("fixed-width integer fields", () => {
 	test("round-trips the min and max of every fixed-width type", () => {

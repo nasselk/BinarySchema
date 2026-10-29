@@ -2,20 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import { BufferReader } from "@nasselk/binarypack";
 
-import { field } from "../src/fields.js";
+import schemas from "./schemas/lists.gen.ts";
 
-import { defineSchemas } from "../src/define.js";
-
-const { Lists } = defineSchemas({
-	Lists: {
-		fields: {
-			numbers: field.integer(16, { list: true }),
-			flags: field.boolean({ list: true }),
-			names: field.string({ list: true }),
-			blobs: field.buffer({ list: true }),
-		},
-	},
-});
+const { Lists } = schemas;
 
 describe("list fields", () => {
 	test("round-trips populated lists of every listable type", () => {

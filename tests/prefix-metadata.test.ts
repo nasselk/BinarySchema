@@ -2,18 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import { BufferReader } from "@nasselk/binarypack";
 
-import { field } from "../src/fields.js";
+import schemas from "./schemas/prefix-metadata.gen.ts";
 
-import { defineSchemas } from "../src/define.js";
-
-const { Tagged } = defineSchemas({
-	Tagged: {
-		metadata: { prefix: [7] },
-		fields: {
-			value: field.integer(8),
-		},
-	},
-});
+const { Tagged, MultiTagged, NoPrefix, Ping } = schemas;
 
 describe("schema.metadata.prefix", () => {
 	test("encode() writes the prefix as the first byte", () => {
@@ -37,21 +28,6 @@ describe("schema.metadata.prefix", () => {
 	});
 });
 
-const { MultiTagged, NoPrefix } = defineSchemas({
-	MultiTagged: {
-		metadata: { prefix: [0xde, 0xad, 0xbe] },
-		fields: {
-			value: field.integer(8),
-		},
-	},
-	NoPrefix: {
-		metadata: { prefix: [] },
-		fields: {
-			value: field.integer(8),
-		},
-	},
-});
-
 describe("schema.metadata.prefix with multiple bytes", () => {
 	test("encode() writes every prefix byte in order", () => {
 		const bytes = MultiTagged.encode({ value: 42 });
@@ -63,5 +39,13 @@ describe("schema.metadata.prefix with multiple bytes", () => {
 		const bytes = NoPrefix.encode({ value: 42 });
 
 		expect([...bytes]).toEqual([42]);
+	});
+
+	test("a schema can have no fields, only a prefix", () => {
+		expect([...Ping.encode({})]).toEqual([1]);
+
+		const reader = new BufferReader(Ping.encode({}));
+		reader.readUint8();
+		expect(Ping.decode(reader)).toEqual({});
 	});
 });

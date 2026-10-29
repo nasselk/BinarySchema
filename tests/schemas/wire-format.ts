@@ -1,0 +1,50 @@
+// The schemas of the recorded wire-format messages (see tests/fixtures/wire-format.json)
+import { field } from "../../src/index.js";
+
+const Vec = { x: field.float32(), y: field.float32() };
+
+export default {
+	Everything: {
+		fields: {
+			level: field.integer(7, { max: 100 }),
+			offset: field.integer(10, { signed: true, min: -500, max: 500 }),
+			wide: field.integer(32),
+			rank: field.integer(4, { default: 1 }),
+			int8: field.int8(),
+			uint8: field.uint8(),
+			int16: field.int16(),
+			uint16: field.uint16(),
+			int32: field.int32(),
+			uint32: field.uint32(),
+			half: field.float16(),
+			halves: field.float16({ list: true }),
+			single: field.float32(),
+			double: field.float64(),
+			alive: field.boolean(),
+			invisible: field.boolean({ default: false }),
+			name: field.string({ maxLength: 16 }),
+			title: field.string({ default: "Rookie" }),
+			avatar: field.buffer({ maxLength: 8 }),
+			guildId: field.uint32({ optional: true }),
+			motto: field.string({ optional: true, maxLength: 20 }),
+			optionalWithDefault: field.uint8({ optional: true, default: 3 }),
+			hasPet: field.boolean(),
+			petName: field.string({ dependencies: ["hasPet"] }),
+			petLevel: field.integer(5, { dependencies: ["hasPet"] }),
+			scores: field.uint16({ list: true }),
+			tags: field.string({ list: true }),
+			flags: field.boolean({ list: true }),
+			bits: field.integer(3, { list: true, signed: true }),
+			samples: field.float32({ list: true }),
+			doubles: field.float64({ list: true }),
+			position: field.object(Vec),
+			waypoints: field.object(Vec, { list: true }),
+			mount: field.object({ speed: field.float32(), sleeping: field.boolean(), dream: field.uint16({ dependencies: ["sleeping"] }) }, { optional: true }),
+			pet: field.object({ hunger: field.integer(7), happy: field.boolean() }, { dependencies: ["hasPet"] }),
+			bags: field.object({ slots: field.uint8(), items: field.object({ id: field.uint16(), count: field.integer(6) }, { list: true }) }, { list: true }),
+		},
+		metadata: { prefix: [7, 9] },
+	},
+	Tail: { fields: { flag: field.boolean(), n: field.integer(3), text: field.string({ includeSize: false }) } },
+	Bits: { fields: { a: field.boolean(), b: field.integer(13), c: field.boolean(), d: field.integer(1), e: field.uint8(), f: field.integer(9, { signed: true }) } },
+};

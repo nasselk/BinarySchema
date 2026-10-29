@@ -2,28 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import { BufferReader } from "@nasselk/binarypack";
 
-import { field } from "../src/fields.js";
+import schemas from "./schemas/defaults.gen.ts";
 
-import { defineSchemas } from "../src/define.js";
-
-const { Defaults } = defineSchemas({
-	Defaults: {
-		fields: {
-			score: field.integer(8, { default: 10, min: 0, max: 100 }),
-			ratio: field.float32({ default: 1.5 }),
-			active: field.boolean({ default: true }),
-			name: field.string({ default: "anon" }),
-		},
-	},
-});
-
-const { OptionalWithDefault } = defineSchemas({
-	OptionalWithDefault: {
-		fields: {
-			level: field.integer(8, { optional: true, default: 3 }),
-		},
-	},
-});
+const { Defaults, OptionalWithDefault } = schemas;
 
 describe("default values", () => {
 	test("omitted fields fall back to their declared default", () => {

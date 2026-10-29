@@ -2,7 +2,7 @@
 	"type": "module",
 	"name": "@nasselk/binaryschema",
 	"author": "nasselk",
-	"description": "Typescript blazing fast data encoding library",
+	"description": "TypeScript schemas compiled ahead of time into fast, fully typed binary encoders and decoders",
 	"version": "0.1.0",
 	"license": "MIT",
 	"homepage": "https://github.com/nasselk/BinarySchema",
@@ -16,10 +16,17 @@
 	},
 	"sideEffects": false,
 	"types": "./dist/index.d.ts",
+	"bin": {
+		"binaryschema": "./dist/cli.js"
+	},
 	"exports": {
 		".": {
 			"types": "./dist/index.d.ts",
 			"default": "./dist/index.js"
+		},
+		"./runtime": {
+			"types": "./dist/runtime.d.ts",
+			"default": "./dist/runtime.js"
 		},
 		"./package.json": "./package.json"
 	},
@@ -32,17 +39,19 @@
 	},
 	"scripts": {
 		"build": "rm -rf dist && tsc",
+		"test": "bun test",
+		"typecheck": "tsc --noEmit -p . && bun tests/setup.ts && tsc -p tests/tsconfig.json",
 		"format": "biome format --write",
 		"lint": "biome lint --write",
 		"biome:check": "biome check --write",
-		"bench": "bun bench/bench.ts",
-		"bench:node": "bun build bench/bench.ts --target=node --outfile bench/.out/bench.mjs && node bench/.out/bench.mjs"
+		"bench": "bun src/cli.ts bench/schemas.ts --runtime ../src/runtime.js && bun bench/bench.ts",
+		"bench:node": "bun src/cli.ts bench/schemas.ts --runtime ../src/runtime.js && bun build bench/bench.ts --target=node --outfile bench/.out/bench.mjs && node bench/.out/bench.mjs"
 	},
 	"dependencies": {
 		"@nasselk/binarypack": "github:nasselk/BinaryPack"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.6.3",
+		"@biomejs/biome": "^2.6.4",
 		"@colyseus/schema": "^5.0.42",
 		"@msgpack/msgpack": "^3.1.3",
 		"@types/bun": "^1.4.4",

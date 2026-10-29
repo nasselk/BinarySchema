@@ -4,7 +4,9 @@ import { readFileSync } from "node:fs";
 
 import { BufferReader, BufferWriter } from "@nasselk/binarypack";
 
-import { fromJson, hex, wireSchemas } from "./fixtures/wire-format.js";
+import { fromJson, hex } from "./fixtures/wire-format.js";
+
+import wireSchemas from "./schemas/wire-format.gen.ts";
 
 // Recorded from the original BinaryPack-based encoder: the exact bytes must never change
 const cases = fromJson(readFileSync(new URL("./fixtures/wire-format.json", import.meta.url), "utf8")) as any[];
@@ -31,7 +33,7 @@ describe("wire format", () => {
 		}
 	});
 
-	test("continues a partial byte left by manual writes on a shared writer, and reads it back", () => {
+	test("starts on a fresh byte after bits written by hand, and leaves its own last byte open", () => {
 		for (const item of cases) {
 			if (item.kind !== "Shared") {
 				continue;
@@ -42,7 +44,13 @@ describe("wire format", () => {
 			wireSchemas.Bits.encode(item.data, writer);
 			writer.writeBoolean(true);
 			wireSchemas.Bits.encode(item.data, writer);
-			expect(hex(writer.buffer.slice(0, writer.offset))).toBe(item.hex);
+
+			// Bits takes 1 + 13 + 1 + 1 bits, a byte, then 9 bits: its last byte holds 1 bit, and the Boolean goes next to it
+			const alone = wireSchemas.Bits.encode(item.data);
+			const withBoolean = alone.slice();
+			withBoolean[withBoolean.length - 1]! |= 1 << 1;
+
+			expect(hex(writer.buffer.slice(0, writer.offset))).toBe(hex(new Uint8Array([item.first])) + hex(withBoolean) + hex(alone));
 
 			const reader = new BufferReader(writer.buffer.slice(0, writer.offset));
 			expect(reader.readBits(3)).toBe(item.first);
@@ -53,35 +61,23 @@ describe("wire format", () => {
 	});
 });
 
-describe("big-endian writers and readers", () => {
-	test("round-trip through a separately compiled big-endian variant", () => {
-		for (const item of cases.filter((c) => c.kind === "Everything").slice(0, 50)) {
-			const writer = new BufferWriter(4096, false, false); // big-endian
-			const written = wireSchemas.Everything.encode(item.data, writer);
-			const bytes = writer.buffer.slice(0, written);
+describe("writers and readers in the middle of a byte", () => {
+	test("round-trip every recorded message after 1 to 7 bits written by hand", () => {
+		for (const [i, item] of cases.filter((c) => c.kind === "Everything").entries()) {
+			const bits = (i % 7) + 1;
+			const writer = new BufferWriter(64, true);
 
-			// Multi-byte values are stored differently from the little-endian bytes...
-			expect(hex(bytes)).not.toBe(item.hex);
+			writer.writeBits(0b1010101 & ((1 << bits) - 1), bits);
+			wireSchemas.Everything.encode(item.data, writer);
+			writer.writeBoolean(true);
 
-			// ...and BinaryPack's own big-endian reader agrees with the layout
-			const reader = new BufferReader(bytes, false, undefined, false);
-			reader.readUint8();
-			reader.readUint8();
+			const reader = new BufferReader(writer.buffer.slice(0, writer.offset));
+
+			expect(reader.readBits(bits)).toBe(0b1010101 & ((1 << bits) - 1));
+			expect([reader.readUint8(), reader.readUint8()]).toEqual([7, 9]); // prefix
 			expect(wireSchemas.Everything.decode(reader)).toEqual(item.decoded);
+			expect(reader.readBoolean()).toBe(true);
 		}
-	});
-
-	test("big-endian bytes match what BinaryPack writes for the same values", () => {
-		const schema = wireSchemas.Bits;
-		const data = { a: true, b: 4321, c: false, d: 1, e: 200, f: -100 };
-
-		const writer = new BufferWriter(16, false, false);
-		schema.encode(data, writer);
-
-		const manual = new BufferWriter(16, false, false);
-		manual.writeBoolean(true).writeBits(4321, 13).writeBoolean(false).writeBits(1, 1).writeUint8(200).writeBits(-100, 9, true);
-
-		expect(hex(writer.buffer.slice(0, writer.offset))).toBe(hex(manual.buffer.slice(0, manual.offset)));
 	});
 });
 

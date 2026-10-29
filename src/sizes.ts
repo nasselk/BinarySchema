@@ -31,7 +31,7 @@ export const countBits = (maxItems: number) => 32 - Math.clz32(maxItems);
 
 // Size range of some encoded data. Bit fields (booleans, bit-packed integers, optional flags, maxItems counts) share bytes
 // with each other, even across nested objects, so they're counted in bits and rounded up only once at the end.
-export type Sizes = { minBits: number; maxBits: number; minBytes: number; maxBytes: number };
+type Sizes = { minBits: number; maxBits: number; minBytes: number; maxBytes: number };
 
 /** The smallest and largest possible encoded size of a schema, in bytes. */
 export function computeByteLengths(definition: SchemaDefinition): { minByteLength: number; maxByteLength: number } {
@@ -45,7 +45,7 @@ export function computeByteLengths(definition: SchemaDefinition): { minByteLengt
 }
 
 /** Size range of a set of fields, including optional flags, absent fields and lists. */
-export function fieldsSize(fields: Record<string, Field>): Sizes {
+function fieldsSize(fields: Record<string, Field>): Sizes {
 	const total: Sizes = { minBits: 0, maxBits: 0, minBytes: 0, maxBytes: 0 };
 
 	for (const field of Object.values(fields)) {
@@ -99,7 +99,7 @@ export function fieldsSize(fields: Record<string, Field>): Sizes {
 }
 
 /** Size range of one value of a field (not counting lists, optional flags or dependencies). */
-export function valueSize(field: Field): Sizes {
+function valueSize(field: Field): Sizes {
 	switch (field.type) {
 		case FieldType.Boolean:
 			return { minBits: 1, maxBits: 1, minBytes: 0, maxBytes: 0 };

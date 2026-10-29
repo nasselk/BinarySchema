@@ -1,5 +1,5 @@
 import { FieldType } from "./types.js";
-/** Marks fields made with the `field` builders. `defineSchemas` only accepts fields that carry it. */
+/** Marks fields made with the `field` builders. `generate` only accepts fields that carry it. */
 export declare const fieldBrand: unique symbol;
 export type FieldBrand = {
     readonly [fieldBrand]: true;
@@ -99,7 +99,8 @@ type OptionsParameter<Options, Allowed> = Allowed & {
  * Builders for schema fields:
  *
  * ```ts
- * defineSchemas({
+ * // schema.ts
+ * export default {
  *   Player: {
  *     fields: {
  *       id: field.uint16(),
@@ -108,11 +109,11 @@ type OptionsParameter<Options, Allowed> = Allowed & {
  *       position: field.object({ x: field.float32(), y: field.float32() }),
  *     },
  *   },
- * });
+ * } satisfies Schemas;
  * ```
  */
 export declare const field: {
-    /** Bit-packed integer of any width from 1 to 53 bits (unsigned unless `signed: true`). */
+    /** Bit-packed integer of any width from 1 to 32 bits (unsigned unless `signed: true`). */
     integer<const Bits extends number, const Options extends IntegerFieldOptions = {}>(bits: Bits, options?: OptionsParameter<Options, IntegerFieldOptions>): Built<{
         type: FieldType.Integer;
         bits: Bits;

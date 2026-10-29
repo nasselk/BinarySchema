@@ -2,63 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { BufferReader } from "@nasselk/binarypack";
 
-import { field } from "../src/fields.js";
-
-import type { DecodedData, EncodedData } from "../src/types.js";
-
-import { defineSchemas } from "../src/define.js";
-
-const schemas = defineSchemas({
-	// 1 + 7 bits share one byte, then 2 + 4 bytes: always 7 bytes
-	Fixed: {
-		fields: {
-			flag: field.boolean(),
-			level: field.integer(7),
-			id: field.uint16(),
-			speed: field.float32(),
-		},
-	},
-	// 2 + 4 + 4 bytes, 7 + 1 bits (one byte), name: 2-byte prefix + 0..32 chars of up to 3 bytes each
-	Player: {
-		fields: {
-			id: field.uint16(),
-			x: field.float32(),
-			y: field.float32(),
-			health: field.integer(7, { max: 100 }),
-			name: field.string({ maxLength: 32 }),
-			isAlive: field.boolean(),
-		},
-	},
-	// flag: 1 bit, target: only when flag is true, timestamp: 1 presence bit + 4 bytes when present
-	Conditional: {
-		fields: {
-			flag: field.boolean(),
-			target: field.uint16({ dependencies: ["flag"] }),
-			timestamp: field.uint32({ optional: true }),
-		},
-	},
-	Unbounded: {
-		fields: {
-			text: field.string(),
-		},
-	},
-	List: {
-		fields: {
-			items: field.uint8({ list: true }),
-		},
-	},
-	BoundedBuffer: {
-		fields: {
-			payload: field.buffer({ minLength: 4, maxLength: 10 }),
-		},
-	},
-	Prefixed: {
-		fields: {
-			value: field.uint8(),
-		},
-		metadata: { prefix: [1, 2] },
-	},
-});
+import schemas, { type Player, type PlayerInput } from "./schemas/byte-length.gen.ts";
 
 describe("minByteLength / maxByteLength", () => {
 	test("fixed-size schema: min and max match the encoded size", () => {
@@ -73,7 +17,7 @@ describe("minByteLength / maxByteLength", () => {
 		const { Player } = schemas;
 
 		expect(Player.minByteLength).toBe(13);
-		expect(Player.maxByteLength).toBe(13 + 32 * 3);
+		expect<number>(Player.maxByteLength).toBe(13 + 32 * 3);
 
 		const base = { id: 1, x: 0, y: 0, health: 50, isAlive: true };
 
@@ -103,8 +47,8 @@ describe("minByteLength / maxByteLength", () => {
 	});
 
 	test("buffers use their byte bounds directly", () => {
-		expect(schemas.BoundedBuffer.minByteLength).toBe(2 + 4);
-		expect(schemas.BoundedBuffer.maxByteLength).toBe(2 + 10);
+		expect<number>(schemas.BoundedBuffer.minByteLength).toBe(2 + 4);
+		expect<number>(schemas.BoundedBuffer.maxByteLength).toBe(2 + 10);
 	});
 
 	test("prefix bytes are included", () => {
@@ -133,41 +77,17 @@ describe("minByteLength / maxByteLength", () => {
 	});
 });
 
-describe("defineSchemas output", () => {
-	test("only exposes encode, decode and the byte lengths", () => {
+describe("generated schemas", () => {
+	test("only expose encode, decode and the byte lengths", () => {
 		expect(Object.keys(schemas.Player).sort()).toEqual(["decode", "encode", "maxByteLength", "minByteLength"]);
 	});
 
-	test("does not modify the definitions passed in", () => {
-		// Kept in a variable to check it afterwards (builders keep exact types without `as const`)
-		const definitions = {
-			Thing: {
-				fields: {
-					value: field.uint16({ dependencies: ["enabled"] }),
-					label: field.string(),
-					enabled: field.boolean(),
-				},
-			},
-		};
-
-		const { Thing } = defineSchemas(definitions);
-
-		// Field order and defaults stay as written; nothing gets attached
-		expect(Object.keys(definitions.Thing.fields)).toEqual(["value", "label", "enabled"]);
-		expect("includeSize" in definitions.Thing.fields.label).toBe(false);
-		expect("encode" in definitions.Thing).toBe(false);
-
-		// The compiled schema still works (and reorders internally so "enabled" comes first)
-		const decoded = Thing.decode(new BufferReader(Thing.encode({ enabled: true, value: 42, label: "hi" })));
-		expect(decoded).toEqual({ enabled: true, value: 42, label: "hi" });
-	});
-
-	test("EncodedData / DecodedData still infer from the compiled schema", () => {
-		const input: EncodedData<typeof schemas.Player> = { id: 1, x: 0, y: 0, health: 1, name: "a", isAlive: true };
-		const output: DecodedData<typeof schemas.Player> = schemas.Player.decode(new BufferReader(schemas.Player.encode(input)));
+	test("export the data types by name", () => {
+		const input: PlayerInput = { id: 1, x: 0, y: 0, health: 1, name: "a", isAlive: true };
+		const output: Player = schemas.Player.decode(new BufferReader(schemas.Player.encode(input)));
 
 		// @ts-expect-error: "name" is required
-		const missing: EncodedData<typeof schemas.Player> = { id: 1, x: 0, y: 0, health: 1, isAlive: true };
+		const missing: PlayerInput = { id: 1, x: 0, y: 0, health: 1, isAlive: true };
 
 		expect(output.name).toBe("a");
 		expect(missing.id).toBe(1);

@@ -33,7 +33,7 @@ export function computeByteLengths(definition) {
     };
 }
 /** Size range of a set of fields, including optional flags, absent fields and lists. */
-export function fieldsSize(fields) {
+function fieldsSize(fields) {
     const total = { minBits: 0, maxBits: 0, minBytes: 0, maxBytes: 0 };
     for (const field of Object.values(fields)) {
         const optional = isOptional(field);
@@ -75,7 +75,7 @@ export function fieldsSize(fields) {
     return total;
 }
 /** Size range of one value of a field (not counting lists, optional flags or dependencies). */
-export function valueSize(field) {
+function valueSize(field) {
     switch (field.type) {
         case FieldType.Boolean:
             return { minBits: 1, maxBits: 1, minBytes: 0, maxBytes: 0 };

@@ -1,22 +1,25 @@
 # BinarySchema
 
-BinarySchema is a TypeScript library for **declarative JSON-to-binary encoding**. You describe your data as a schema — field names, types, bit widths, constraints — and it compiles dedicated `encode`/`decode` functions for that exact shape that read and write bytes directly, with full TypeScript type inference for the data.
+BinarySchema is a TypeScript library for **declarative JSON-to-binary encoding**. You describe your data as a schema — field names, types, bit widths, constraints — and the `binaryschema` command generates a TypeScript file with dedicated `encode`/`decode` functions for that exact shape, which read and write bytes directly, plus the exact TypeScript types of the data.
+
+Everything is generated ahead of time: no `eval`/`new Function` at runtime, so the output works anywhere TypeScript runs (including strict Content Security Policies, Cloudflare Workers and ahead-of-time compilers), and the generated file is plain code you can read, debug and review.
 
 [BinaryPack](https://github.com/nasselk/BinaryPack)'s `BufferWriter`/`BufferReader` are used as the containers when you want to pack several messages into one buffer or read a prefix byte yourself.
 
 ## Overview
 
-- Schema-first: define `fields` once with the `field` builders, get `encode`/`decode` plus fully inferred TypeScript types for the data
+- Schema-first: define `fields` once with the `field` builders, generate `encode`/`decode` plus the data types written out field by field
 - Bit-level packing for integers of any width from 1 to 32 bits and for booleans, plus byte-aligned fixed-width numbers
 - Optional fields, field-to-field dependencies, and default values, each with different wire-format costs
 - Lists via `list: true` on any field type (with an optional `maxItems` limit), and nested objects to any depth
-- Validated at schema-definition time (bad bit widths, out-of-range defaults, circular dependencies, ...) and at encode time (range/length/pattern checks)
-- Encoders/decoders are generated once per schema via `new Function(...)`, not interpreted per call: straight-line code that writes and reads bytes directly, with one capacity check per message
+- Validated when generating (bad bit widths, out-of-range defaults, circular dependencies, ...) and at encode time (range/length/pattern checks)
+- Encoders/decoders are generated per schema, not interpreted per call: straight-line code that writes and reads bytes directly, with one capacity check per message
 
 ## Table of contents
 
 - [Installation](#installation)
 - [Quick example](#quick-example)
+- [Generating](#generating)
 - [API highlights](#api-highlights)
 - [Schema definition](#schema-definition)
 - [Field types](#field-types)
@@ -40,20 +43,17 @@ npm install github:nasselk/BinarySchema          # tracks the default branch
 npm install github:nasselk/BinarySchema#v0.1.0   # pinned to a tag
 ```
 
-ESM-only. Requires Node.js 20+ (or Bun / any modern bundler). Depends on [`@nasselk/binarypack`](https://github.com/nasselk/BinaryPack), which is installed automatically.
-
-```ts
-import { defineSchemas, field } from "@nasselk/binaryschema";
-import { BufferReader, BufferWriter } from "@nasselk/binarypack";
-```
+ESM-only. Generated files run on Node.js 20+, Bun, Deno and browsers. The `binaryschema` command needs Bun or Node.js 22.18+ (it imports your `.ts` schema file). Depends on [`@nasselk/binarypack`](https://github.com/nasselk/BinaryPack), which is installed automatically.
 
 ## Quick example
 
-```ts
-import { defineSchemas, field } from "@nasselk/binaryschema";
-import { BufferReader } from "@nasselk/binarypack";
+Write the schemas in a file that exports them as default:
 
-const schemas = defineSchemas({
+```ts
+// schema.ts
+import { field, type Schemas } from "@nasselk/binaryschema";
+
+export default {
   Player: {
     fields: {
       id: field.uint16(),
@@ -64,9 +64,22 @@ const schemas = defineSchemas({
       isAlive: field.boolean({ default: true }),
     },
   },
-});
+} satisfies Schemas;
+```
 
-// TypeScript infers the input/output shapes from the schema itself
+Generate the code:
+
+```pwsh
+bunx binaryschema schema.ts   # writes schema.gen.ts
+```
+
+Then use it:
+
+```ts
+import { BufferReader } from "@nasselk/binarypack";
+import schemas, { type Player } from "./schema.gen.ts";
+
+// encode() only accepts data of the exact shape the schema describes
 const bytes = schemas.Player.encode({
   id: 12345,
   x: 150.5,
@@ -76,28 +89,44 @@ const bytes = schemas.Player.encode({
   isAlive: true,
 });
 
-const decoded = schemas.Player.decode(new BufferReader(bytes));
+const decoded: Player = schemas.Player.decode(new BufferReader(bytes));
 console.log(decoded); // { id: 12345, x: 150.5, y: -200.75, health: 85, name: "Hero", isAlive: true }
 ```
 
+## Generating
+
+```
+binaryschema <schema.ts> [-o <output.ts>] [--runtime <module>]
+```
+
+- The schema file exports its schemas as default. `satisfies Schemas` is optional and catches some mistakes in your editor; everything else (dependencies that don't exist, bad options, ...) is reported by `binaryschema` with the schema and field named.
+- Without `-o`, the output goes next to the input: `schema.ts` → `schema.gen.ts`. Generated files can be ignored by git (`*.gen.ts`) and regenerated as part of your build, or committed if you'd rather review them.
+- `--runtime` changes the module generated code imports its helpers from (default `@nasselk/binaryschema/runtime`), e.g. to point at a vendored copy.
+- Run it again whenever the schema file changes. Generated files check the installed BinarySchema version when they load, and throw with the command to run if it changed.
+- `generate(schemas, options)` from `@nasselk/binaryschema` does the same thing in code and returns the file's text.
+
+For each schema, the generated file contains:
+
+- `export type Player`, the decoded data, and `export type PlayerInput`, the data `encode` accepts (fields with a default are optional there). Each field is documented with its wire type and options, so hovering it shows e.g. `7-bit unsigned integer, max 100`.
+- `encodePlayer` / `decodePlayer`, the generated functions. Bit fields compile to fixed shifts, with all the bits of a byte stored at once.
+- An entry in the default export: `{ Player: { minByteLength, maxByteLength, encode, decode }, ... }`, with the byte lengths as literal types.
+
+It compiles under the strictest TypeScript settings (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noUnusedLocals`, `verbatimModuleSyntax`...) and tells ESLint and Biome to skip it.
+
 ## API highlights
 
-- **`defineSchemas(schemas)`** — validates and compiles a collection of named schemas. Returns an object with the same keys, each value being a `Schema` with `encode`, `decode`, `minByteLength` and `maxByteLength`. The definitions you pass in are not modified.
+- **`binaryschema schema.ts`** / **`generate(schemas)`** — validates a collection of named schemas and generates their code (see [Generating](#generating)). Schema names must be identifiers, since they name the generated types. The definitions are not modified.
 - **`field`** — builders for every field: `field.integer(bits)`, `field.int8()`, `field.uint8()`, `field.int16()`, `field.uint16()`, `field.int32()`, `field.uint32()`, `field.float16()`, `field.float32()`, `field.float64()`, `field.boolean()`, `field.string()`, `field.buffer()`, `field.object(fields)`. Each takes an options object, and your editor suggests only the options valid for that field type. Fields must be made with these builders.
 - **`schema.encode(data)`** → `Uint8Array`, or **`schema.encode(data, writer)`** → number of bytes written into an existing `BufferWriter` (see [Shared writer/reader](#shared-writerreader-packet-framing)).
 - **`schema.decode(reader)`** → the decoded data object, read from a `BufferReader`.
-- **`schema.minByteLength` / `schema.maxByteLength`** — the smallest and largest possible encoded size in bytes, computed when the schema is defined. Optional and dependency-gated fields count as absent for the minimum. Strings count up to 3 bytes per character (`maxLength × 3`) for the maximum. A string or buffer without `maxLength`, or a `list` without `maxItems`, makes the maximum `Infinity`. When both are equal, every message has that exact size.
-- **`EncodedData<S>` / `DecodedData<S>`** — the inferred input/output types for a schema. They differ: a field with a `default` is *optional* on the way in (you can omit it) but *never `undefined`* on the way out (the decoder always resolves it). See [below](#optional-fields-vs-dependencies-vs-defaults).
-
-```ts
-type PlayerInput = import("@nasselk/binaryschema").EncodedData<typeof schemas.Player>;
-type PlayerOutput = import("@nasselk/binaryschema").DecodedData<typeof schemas.Player>;
-```
+- **`schema.minByteLength` / `schema.maxByteLength`** — the smallest and largest possible encoded size in bytes, computed when generating. Optional and dependency-gated fields count as absent for the minimum. Strings count up to 3 bytes per character (`maxLength × 3`) for the maximum. A string or buffer without `maxLength`, or a `list` without `maxItems`, makes the maximum `Infinity`. When both are equal, every message has that exact size.
+- **`PlayerInput` / `Player`** — the generated input/output types of a schema. They differ: a field with a `default` is *optional* on the way in (you can omit it) but *never `undefined`* on the way out (the decoder always resolves it). See [below](#optional-fields-vs-dependencies-vs-defaults).
+- **Decoded objects always have every key.** An optional or dependent field that wasn't sent is `undefined` rather than missing, so every object of a schema has the same shape, which JavaScript engines optimize best. `JSON.stringify` still leaves it out, but `"field" in message` and `Object.keys` include it.
 
 ## Schema definition
 
 ```ts
-const schemas = defineSchemas({
+export default {
   SchemaName: {
     fields: {
       fieldName: field.integer(8, { /* options for this field type */ }),
@@ -106,7 +135,7 @@ const schemas = defineSchemas({
       prefix: [0x01], // optional: leading bytes written before the fields (see below)
     },
   },
-});
+} satisfies Schemas;
 ```
 
 Fields can be stored in variables and reused. The builders keep exact types, so no `as const` is needed.
@@ -216,11 +245,11 @@ field.object({ x: field.float32(), y: field.float32() }, {
 These three interact but mean different things on the wire and in the inferred types:
 
 - **`optional: true`** costs one actual bit — the encoder always writes a presence flag for that field, independent of any other field, and the decoder reads it back to decide whether to read the value.
-- **`dependencies: ["otherField", ...]`** costs *zero* extra bits. There's no presence flag for the dependent field at all — whether it's read/written is derived purely from the (already-encoded) value of the boolean field(s) it depends on. Dependencies must reference existing `Boolean` fields, and `defineSchemas` automatically reorders fields so a dependency is always resolved before anything that depends on it (circular dependencies are rejected at definition time).
-- **`default: <value>`** makes the field omittable from the *encode* input (the encoder substitutes the default when you don't provide one) — but on *decode*, a defaulted field is **never `undefined`**, since the decoder always resolves it one way or another (including fields that are both `optional` and defaulted). This is why `EncodedData<S>` and `DecodedData<S>` can disagree on which fields are optional for the same schema.
+- **`dependencies: ["otherField", ...]`** costs *zero* extra bits. There's no presence flag for the dependent field at all — whether it's read/written is derived purely from the (already-encoded) value of the boolean field(s) it depends on, defaults included. Since the decoder reads the field whenever its dependencies are true, encoding throws if it's missing then (unless it has a default). Dependencies must reference existing `Boolean` fields, and fields are automatically reordered so a dependency is always resolved before anything that depends on it (circular dependencies are rejected when generating).
+- **`default: <value>`** makes the field omittable from the *encode* input (the encoder substitutes the default when you don't provide one) — but on *decode*, a defaulted field is **never `undefined`**, since the decoder always resolves it one way or another (including fields that are both `optional` and defaulted). This is why `PlayerInput` and `Player` can disagree on which fields are optional for the same schema.
 
 ```ts
-const schemas = defineSchemas({
+export default {
   Packet: {
     fields: {
       compressed: field.boolean(),
@@ -230,7 +259,7 @@ const schemas = defineSchemas({
       timestamp: field.uint32({ optional: true }), // presence bit, independent of anything else
     },
   },
-});
+} satisfies Schemas;
 ```
 
 ## Lists
@@ -238,7 +267,7 @@ const schemas = defineSchemas({
 Any field type can be marked `list: true` for an array of that type, prefixed with a `uint16` element count:
 
 ```ts
-const schemas = defineSchemas({
+export default {
   Inventory: {
     fields: {
       playerId: field.uint16(),
@@ -246,8 +275,11 @@ const schemas = defineSchemas({
       tags: field.string({ list: true }),
     },
   },
-});
+} satisfies Schemas;
+```
 
+```ts
+// With `schemas` imported from the generated file
 const bytes = schemas.Inventory.encode({ playerId: 100, items: [1, 5, 10, 23], tags: ["rare", "weapon"] });
 const decoded = schemas.Inventory.decode(new BufferReader(bytes));
 console.log(decoded.items); // [1, 5, 10, 23], fully typed as number[]
@@ -277,7 +309,7 @@ const Entity = {
   stunned: field.boolean(),
 };
 
-const schemas = defineSchemas({
+export default {
   Snapshot: {
     fields: {
       tick: field.uint32(),
@@ -292,8 +324,10 @@ const schemas = defineSchemas({
       ),
     },
   },
-});
+} satisfies Schemas;
+```
 
+```ts
 schemas.Snapshot.encode({
   tick: 1200,
   entities: [{ id: 1, x: 10, y: 20, hp: 100, stunned: false }],
@@ -304,7 +338,7 @@ schemas.Snapshot.encode({
 - `dependencies` refer to boolean siblings in the same object.
 - Object fields can't have a `default`; make them `optional` instead. Encoding a missing required object throws.
 - Errors name the full path, e.g. `Field 'camera.targetId' is out of range`.
-- `EncodedData` / `DecodedData` infer nested shapes, e.g. `entities: { id: number; x: number; ... }[]`.
+- The generated types spell out nested shapes, e.g. `entities: { id: number; x: number; ... }[]`.
 
 ## Shared writer/reader (packet framing)
 
@@ -322,6 +356,8 @@ const player = schemas.Player.decode(reader); // advances the shared reader
 const other = otherSchema.decode(reader);
 ```
 
+Every message starts on a fresh byte: if the writer or reader is in the middle of a byte (the previous message, or your own `writeBits`/`readBits`, ended there), the rest of that byte is skipped. That costs at most 7 bits between messages, and keeps every message's bit layout fixed, which lets bit fields compile to plain shifts. Bits you write right after a message still go into its last byte.
+
 ## The `metadata.prefix` bytes
 
 `metadata.prefix` is an array of bytes written one after another (each as a `uint8`) at the very start of `encode()`'s output — but `decode()` does **not** consume them. An empty (or omitted) array writes nothing. This matches a dispatch pattern where a prefix identifies which schema to use *before* you know which `decode()` to call:
@@ -335,8 +371,8 @@ const decoded = Tagged.decode(reader); // decode() picks up right after it
 
 ## Validation
 
-- **At `defineSchemas` time**: fields made with the `field` builders, positive bit widths, defaults within their declared `min`/`max` (or length bounds/pattern for strings), `dependencies` referencing existing `Boolean` siblings, no circular dependencies, `Boolean` fields not marked `optional`, lists requiring `includeSize`, `maxItems` only on lists (1 to 65535), no `default` on object fields. Most of these are also caught by TypeScript before you run anything.
-- **At `encode()` time**: `min`/`max` range checks (including a fixed-width int type's own intrinsic range, even without an explicit `min`/`max`), values that don't fit their bit width, string `pattern`/length checks, buffer length checks, lists longer than `maxItems` (or 65535), strings and buffers over 65535 bytes when size-prefixed, missing required nested objects, and writers too small for the message — all throwing `RangeError`, `TypeError` or `Error` with a message naming the offending field by its full path (e.g. `camera.targetId`).
+- **When generating**: schema names usable as type names, fields made with the `field` builders, bit widths from 1 to 32, defaults within their declared `min`/`max` (or length bounds/pattern for strings), `dependencies` referencing existing `Boolean` siblings, no circular dependencies, `Boolean` fields not marked `optional`, lists requiring `includeSize`, `maxItems` only on lists (1 to 65535), no `default` on lists, buffers or objects, prefixes made of bytes. Errors name the schema and the field. The field builders also reject wrong options in your editor, before anything runs.
+- **At `encode()` time**: `min`/`max` range checks (including a fixed-width int type's own intrinsic range, even without an explicit `min`/`max`), values that don't fit their bit width, string `pattern`/length checks, buffer length checks, lists longer than `maxItems` (or 65535), strings and buffers over 65535 bytes when size-prefixed, missing required nested objects, dependent fields missing while their dependencies are true, and writers too small for the message — all throwing `RangeError`, `TypeError` or `Error` with a message naming the offending field by its full path (e.g. `camera.targetId`).
 - **At `decode()` time**: truncated messages, and list counts that exceed `maxItems` or can't fit in the remaining bytes, throw `RangeError` instead of returning garbage.
 
 ## Building / running locally
@@ -346,12 +382,12 @@ Requirements: [Bun](https://bun.sh) (Node.js 24+ only for `bench:node`).
 ```pwsh
 bun install          # install dependencies
 bun test             # run the test suite
-bunx tsc --noEmit    # type-check src/
+bun run typecheck    # type-check src/, and the tests + generated files with the strictest settings
 bun run build        # compile src/ -> dist/ (JS + .d.ts + sourcemaps)
 bun run format       # format with Biome
 bun run lint         # lint with Biome (the linter is currently disabled in biome.json, so this has nothing to check)
 bun run biome:check  # format + lint in one pass, applying fixes
-bun run bench        # size/speed benchmark against protobuf, Avro, FlatBuffers, msgpack, JSON… (Bun)
+bun run bench        # generate bench/schemas.gen.ts, then a size/speed benchmark against protobuf, Avro, FlatBuffers, msgpack, JSON… (Bun)
 bun run bench:node   # the same benchmark on Node.js
 ```
 
@@ -375,8 +411,9 @@ git push --tags
 
 ## Notes
 
-- Encoders/decoders are compiled with `new Function(...)` at `defineSchemas` time — this may be blocked in strict Content Security Policy environments.
-- The generated code does its own byte work; [`@nasselk/binarypack`](https://github.com/nasselk/BinaryPack) provides the `BufferWriter`/`BufferReader` types and objects for `encode(data, writer)` / `decode(reader)`. Messages are little-endian; a big-endian writer or reader gets its own compiled variant, created on first use.
+- The generated code does its own byte work; [`@nasselk/binarypack`](https://github.com/nasselk/BinaryPack) provides the `BufferWriter`/`BufferReader` objects for `encode(data, writer)` / `decode(reader)`.
+- Messages are always little-endian: a writer's or reader's `endianness` setting is ignored. The runtime throws when it loads on a big-endian machine (every mainstream CPU is little-endian).
+- Files with `float16` fields need `Float16Array` (Bun, Node.js 24+ or a recent browser) and throw when they load without it.
 - The wire format is pinned by `tests/wire-format.test.ts`: 600 recorded messages must keep encoding to exactly the same bytes.
 - Portions of this README and inline documentation were written with AI assistance.
 

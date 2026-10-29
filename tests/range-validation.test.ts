@@ -1,20 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import { field } from "../src/fields.js";
+import schemas from "./schemas/range-validation.gen.ts";
 
-import { defineSchemas } from "../src/define.js";
-
-const { Ranged } = defineSchemas({
-	Ranged: {
-		fields: {
-			age: field.integer(8, { min: 0, max: 120 }),
-			ratio: field.float32({ min: 0, max: 1 }),
-			code: field.string({ pattern: /^[A-Z]{3}$/ }),
-			shortText: field.string({ minLength: 2, maxLength: 5 }),
-			tag: field.buffer({ minLength: 1, maxLength: 4 }),
-		},
-	},
-});
+const { Ranged, GlobalPattern } = schemas;
 
 function validData() {
 	return {
@@ -53,5 +41,13 @@ describe("runtime range validation at encode time", () => {
 	test("rejects a buffer outside its length bounds", () => {
 		expect(() => Ranged.encode({ ...validData(), tag: new Uint8Array([]).buffer })).toThrow(/length is out of range/);
 		expect(() => Ranged.encode({ ...validData(), tag: new Uint8Array([1, 2, 3, 4, 5]).buffer })).toThrow(/length is out of range/);
+	});
+
+	test("a pattern with the global flag accepts the same valid value every time", () => {
+		for (let i = 0; i < 4; i++) {
+			expect(() => GlobalPattern.encode({ code: "abc" })).not.toThrow();
+		}
+
+		expect(() => GlobalPattern.encode({ code: "ABC" })).toThrow(/does not match pattern/);
 	});
 });

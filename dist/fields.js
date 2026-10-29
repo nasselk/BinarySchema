@@ -1,5 +1,5 @@
 import { FieldType } from "./types.js";
-/** Marks fields made with the `field` builders. `defineSchemas` only accepts fields that carry it. */
+/** Marks fields made with the `field` builders. `generate` only accepts fields that carry it. */
 export const fieldBrand = Symbol("binaryschema.field");
 /** Whether a field has a presence bit (Boolean fields have no `optional` option at all). */
 export const isOptional = (field) => "optional" in field && field.optional === true;
@@ -15,7 +15,8 @@ function numberField(type) {
  * Builders for schema fields:
  *
  * ```ts
- * defineSchemas({
+ * // schema.ts
+ * export default {
  *   Player: {
  *     fields: {
  *       id: field.uint16(),
@@ -24,11 +25,11 @@ function numberField(type) {
  *       position: field.object({ x: field.float32(), y: field.float32() }),
  *     },
  *   },
- * });
+ * } satisfies Schemas;
  * ```
  */
 export const field = {
-    /** Bit-packed integer of any width from 1 to 53 bits (unsigned unless `signed: true`). */
+    /** Bit-packed integer of any width from 1 to 32 bits (unsigned unless `signed: true`). */
     integer(bits, options) {
         return build({ ...options, type: FieldType.Integer, bits });
     },

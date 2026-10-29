@@ -1,36 +1,27 @@
-import type { BufferReader } from "@nasselk/binarypack";
 import { type Field, isConditional, isOptional } from "../fields.js";
-import { type DecodedData, FieldType, type SchemaDefinition } from "../types.js";
+
+import { FieldType, type SchemaDefinition } from "../types.js";
+
 import { countBits, minimumBits } from "../sizes.js";
-import { copyFloatBytes, key, literal, loadBytes, Names, sourceUrl } from "./codegen.js";
-import { F16, RUNTIME_HELPERS } from "./runtime.js";
+
+import { BitReader } from "./bits.js";
+
+import { commentText, copyFloatBytes, escape, literal, loadBytes, Names, propertyName } from "./codegen.js";
+
+import { primitiveType } from "./types.js";
 
 /**
  * Decoders are generated per schema: straight-line code that reads bytes directly from the reader's buffer,
  * keeping the position in local variables and storing it back once at the end.
  */
 
-// Reads one message from a reader
-type ReadFunction = (reader: ReaderLike) => any;
+/** What the decoder of one schema needs from the rest of the generated file. */
+export interface DecoderContext {
+	/** Name of the generated function. */
+	name: string;
 
-/** The parts of a BufferReader the generated code uses. */
-interface ReaderLike {
-	buffer: Uint8Array;
-	offset: number;
-	bitOffset: number;
-	bitIndex: number;
-	endianness: boolean;
-}
-
-export function compileDecoder<T extends SchemaDefinition>(schema: T, schemaName: string = "schema"): (reader: BufferReader) => DecodedData<T> {
-	const littleEndian = compileReadFunction(schema, schemaName, true);
-	let bigEndian: ReadFunction | undefined; // compiled the first time a big-endian reader is used
-
-	return function decode(reader: BufferReader): DecodedData<T> {
-		const source = reader as unknown as ReaderLike;
-
-		return source.endianness === false ? (bigEndian ??= compileReadFunction(schema, schemaName, false))(source) : littleEndian(source);
-	};
+	/** Name of the type of the data it returns. */
+	outputType: string;
 }
 
 /*
@@ -38,46 +29,43 @@ export function compileDecoder<T extends SchemaDefinition>(schema: T, schemaName
  *   buffer     the reader's bytes
  *   end        the buffer's length
  *   offset     next byte to read
- *   bitByte    byte the current bits are read from (only meaningful while bitIndex > 0)
- *   bitIndex   bits already read from bitByte (0 = no partial byte)
- *   view       DataView over buffer, created on the first float list
+ *   bitByte / bitIndex   the partial byte of bit fields (see bits.ts)
+ *   view       DataView over buffer, created on the first float list (only declared when there are float lists)
  *   field_<field>, present_<field>, list_<field>, ...   per-field locals, named after the field path
  */
-function compileReadFunction(schema: SchemaDefinition, schemaName: string, littleEndian: boolean): ReadFunction {
-	const names = new Names();
-	const { code, object } = readCode(schema.fields, "", littleEndian, names);
+export function decoderSource(schema: SchemaDefinition, context: DecoderContext): string {
+	const names = new Names(["reader", "buffer", "end", "view", "offset", "bitByte", "bitIndex"]);
+	const bits = new BitReader();
+	const { code, object } = readCode(schema.fields, "", context.outputType, names, bits);
+	const end = bits.end("reader");
+	const usesView = code.includes("view.");
 
-	const body = `
-		const buffer = reader.buffer;
-		const end = buffer.length;
-		let view; // created on the first float list (float reads through a DataView are ~5x faster on Bun than byte copies)
-		let offset = reader.offset;
-		let bitByte = reader.bitOffset;
-		let bitIndex = reader.bitIndex;
+	return `
+			function ${context.name}(reader: BufferReader): ${context.outputType} {
+				const buffer = reader.buffer;
+				const end = buffer.length;
+				let offset = reader.offset;
+				${bits.declarations(code + end)}${usesView ? "let view: DataView | undefined; // created on the first float list (float reads through a DataView are ~5x faster on Bun than byte copies)" : ""}
+				${code}
 
-		${code}
+				// Reads past the end return undefined instead of throwing, so check once at the end
+				if (offset > end) throw new RangeError("Read out of bounds: the message needs " + offset + " bytes but only " + end + " are available");
 
-		// Reads past the end return undefined instead of throwing, so check once at the end
-		if (offset > end) throw new RangeError("Read out of bounds: the message needs " + offset + " bytes but only " + end + " are available");
+				reader.offset = offset;
+				${end}
 
-		reader.offset = offset;
-		reader.bitOffset = bitIndex === 0 ? offset : bitByte;
-		reader.bitIndex = bitIndex;
-
-		return ${object};
-	`;
-
-	const helpers = Object.keys(RUNTIME_HELPERS);
-	const kind = littleEndian ? "decode" : "decode-big-endian";
-
-	return new Function(...helpers, `return function decode(reader) {${body}}${sourceUrl(schemaName, kind)}`)(...Object.values(RUNTIME_HELPERS)) as ReadFunction;
+				return ${object};
+			}
+		`;
 }
 
-/** Reads one level of fields into locals, then builds the object. Returns the code and the object's variable. */
-function readCode(fields: Record<string, Field>, path: string, littleEndian: boolean, names: Names): { code: string; object: string } {
+/**
+ * Reads one level of fields into locals, then builds the object. Returns the code and the object's variable.
+ *
+ * @param objectType TypeScript type of the object being built, e.g. `Player` or `NonNullable<Player["mount"]>`.
+ */
+function readCode(fields: Record<string, Field>, path: string, objectType: string, names: Names, bits: BitReader): { code: string; object: string } {
 	const locals = new Map<string, string>();
-	const alwaysPresent: string[] = [];
-	const sometimesPresent: string[] = [];
 
 	let code = "";
 
@@ -87,8 +75,12 @@ function readCode(fields: Record<string, Field>, path: string, littleEndian: boo
 		const conditional = isConditional(field);
 		const fieldDefault = (field as { default?: unknown }).default;
 
+		// The type of the value once read: spelled out for primitives, the property's type without `undefined` for objects
+		const primitive = primitiveType(field, "decode");
+		const type = primitive ? `${primitive}${field.list ? "[]" : ""}` : `NonNullable<${objectType}[${JSON.stringify(name)}]>`;
+
 		locals.set(name, local);
-		code += `\n// ${label}\nlet ${local};\n`;
+		code += `\n// ${commentText(label)}\nlet ${local}: ${type}${conditional || fieldDefault !== undefined ? " | undefined" : ""};\n`;
 
 		if (conditional) {
 			const present = names.next("present", label);
@@ -96,50 +88,42 @@ function readCode(fields: Record<string, Field>, path: string, littleEndian: boo
 			code += `let ${present} = true;\n`;
 
 			if (isOptional(field)) {
-				code += `${readBitCode(present)}\n`;
+				code += bits.bit(present);
 			}
 
 			for (const dependency of field.dependencies ?? []) {
 				code += `if (!${locals.get(dependency)}) ${present} = false;\n`;
 			}
 
-			code += `if (${present}) {\n`;
-		}
+			const block = bits.region(() => fieldCode(field, label, local, type, names, bits), false);
 
-		if (field.list) {
-			code += listCode(field, label, local, littleEndian, names);
+			code += `${block.before}if (${present}) {\n${block.body}}\n`;
 		} else {
-			code += `${readValueCode(field, local, label, littleEndian, names)}\n`;
-		}
-
-		if (conditional) {
-			code += "}\n";
+			code += fieldCode(field, label, local, type, names, bits);
 		}
 
 		// A field with a default is always present after decoding
 		if (fieldDefault !== undefined) {
 			code += `if (${local} === undefined) ${local} = ${literal(fieldDefault)};\n`;
-			alwaysPresent.push(name);
-		} else if (conditional) {
-			sometimesPresent.push(name);
-		} else {
-			alwaysPresent.push(name);
 		}
 	}
 
-	// Always-present fields in one object literal; the others added only when they were read
+	// Every field in one object literal, absent ones as undefined: every object of a schema then has the same shape,
+	// which engines optimize best (adding properties later would give each combination of present fields its own)
 	const object = names.next("object", path ? path.slice(0, -1) : "message");
 
-	code += `\nconst ${object} = { ${alwaysPresent.map((name) => `${JSON.stringify(name)}: ${locals.get(name)}`).join(", ")} };\n`;
-
-	for (const name of sometimesPresent) {
-		code += `if (${locals.get(name)} !== undefined) ${object}${key(name)} = ${locals.get(name)};\n`;
-	}
+	code += `\nconst ${object}: ${objectType} = { ${[...locals].map(([name, local]) => `${propertyName(name)}: ${local}`).join(", ")} };\n`;
 
 	return { code, object };
 }
 
-function listCode(field: Field, label: string, target: string, littleEndian: boolean, names: Names): string {
+/** Reads a field's value (or list of values) into `target`, once it's known to be sent. */
+function fieldCode(field: Field, label: string, target: string, type: string, names: Names, bits: BitReader): string {
+	return field.list ? listCode(field, label, target, type, names, bits) : `${readValueCode(field, target, label, type, names, bits)}\n`;
+}
+
+/** @param listType TypeScript type of the list, e.g. `number[]` or `NonNullable<Player["bags"]>`. */
+function listCode(field: Field, label: string, target: string, listType: string, names: Names, bits: BitReader): string {
 	const count = names.next("count", label);
 	const list = names.next("list", label);
 	const index = names.next("index", label);
@@ -150,93 +134,72 @@ function listCode(field: Field, label: string, target: string, littleEndian: boo
 
 	if (field.maxItems !== undefined) {
 		// Bit-packed count, just wide enough for maxItems; a larger value means corrupt or hostile data
-		code = `let ${count};\n${readBitsCode(count, countBits(field.maxItems), 0, `${label}_count`, names)}\n`;
-		code += `if (${count} > ${field.maxItems}) throw new RangeError("Invalid data: list '${label}' claims " + ${count} + " items, at most ${field.maxItems} allowed (maxItems)");\n`;
+		code = `let ${count}: number;\n${bits.bits(count, countBits(field.maxItems), 0, `${label}_count`, names)}`;
+		code += `if (${count} > ${field.maxItems}) throw new RangeError("Invalid data: list '${escape(label)}' claims " + ${count} + " items, at most ${field.maxItems} allowed (maxItems)");\n`;
 	} else {
-		code = `const ${count} = ${loadBytes(2, littleEndian)}; offset += 2;\n`;
+		code = `const ${count} = ${loadBytes(2)}; offset += 2;\n`;
 	}
 
 	// Reject absurd counts (corrupt or hostile data) before allocating
 	if (itemBits > 0) {
-		code += `if (${count} * ${itemBits} > ((end - offset) << 3) + 8) throw new RangeError("Read out of bounds: list '${label}' claims " + ${count} + " items");\n`;
+		code += `if (${count} * ${itemBits} > ((end - offset) << 3) + 8) throw new RangeError("Read out of bounds: list '${escape(label)}' claims " + ${count} + " items");\n`;
 	}
 
-	code += `const ${list} = new Array(${count});\n`;
+	code += `const ${list}: ${listType} = new Array(${count});\n`;
 
 	if (field.type === FieldType.Float32 || field.type === FieldType.Float64) {
 		// Float lists: one DataView for the whole message instead of a byte copy per float
 		const size = field.type === FieldType.Float32 ? 4 : 8;
 		const read = field.type === FieldType.Float32 ? "getFloat32" : "getFloat64";
 
-		code += `if (offset + ${count} * ${size} > end) throw new RangeError("Read out of bounds: list '${label}' claims " + ${count} + " items");\n`;
+		code += `if (offset + ${count} * ${size} > end) throw new RangeError("Read out of bounds: list '${escape(label)}' claims " + ${count} + " items");\n`;
 		code += "if (view === undefined) view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);\n";
-		code += `for (let ${index} = 0; ${index} < ${count}; ${index}++) { ${list}[${index}] = view.${read}(offset, ${littleEndian}); offset += ${size}; }\n`;
+		code += `for (let ${index} = 0; ${index} < ${count}; ${index}++) { ${list}[${index}] = view.${read}(offset, true); offset += ${size}; }\n`;
 	} else {
-		code += `for (let ${index} = 0; ${index} < ${count}; ${index}++) {\nlet ${item};\n${readValueCode(field, item, label, littleEndian, names)}\n${list}[${index}] = ${item};\n}\n`;
+		const itemType = primitiveType(field, "decode") ?? `${listType}[number]`;
+		const loop = bits.region(() => `let ${item}: ${itemType};\n${readValueCode(field, item, label, itemType, names, bits)}\n${list}[${index}] = ${item};\n`, true);
+
+		code += `${loop.before}for (let ${index} = 0; ${index} < ${count}; ${index}++) {\n${loop.body}}\n`;
 	}
 
 	return `${code}${target} = ${list};\n`;
 }
 
-/** Reads `bits` bits into `target` as an unsigned number plus `min` (low bits first, the order the encoder writes them). */
-function readBitsCode(target: string, bits: number, min: number, label: string, names: Names): string {
-	const value = names.next("bitsValue", label);
-	const done = names.next("bitsDone", label);
-	const now = names.next("bitsNow", label);
-
-	return `{ let ${value} = 0; for (let ${done} = 0; ${done} < ${bits}; ) { if (bitIndex === 0) { bitByte = offset++; } const ${now} = ${bits} - ${done} < 8 - bitIndex ? ${bits} - ${done} : 8 - bitIndex; ${value} |= ((buffer[bitByte] >> bitIndex) & ((1 << ${now}) - 1)) << ${done}; ${done} += ${now}; bitIndex = (bitIndex + ${now}) & 7; } ${target} = (${value} >>> 0)${min ? ` + ${min}` : ""}; }`;
-}
-
-/** Reads one bit into `target` as a boolean. */
-function readBitCode(target: string): string {
-	return `if (bitIndex === 0) { bitByte = offset; ${target} = (buffer[offset++] & 1) === 1; bitIndex = 1; } else { ${target} = ((buffer[bitByte] >> bitIndex) & 1) === 1; bitIndex = (bitIndex + 1) & 7; }`;
-}
-
-function readValueCode(field: Field, target: string, label: string, littleEndian: boolean, names: Names): string {
+/** @param type TypeScript type of the value, used for nested objects. */
+function readValueCode(field: Field, target: string, label: string, type: string, names: Names, bits: BitReader): string {
 	switch (field.type) {
 		case FieldType.Boolean:
-			return readBitCode(target);
+			return bits.bit(target);
 
-		case FieldType.Integer: {
-			const bits = field.bits;
-
-			if (bits > 32) {
-				return `throw new RangeError("Bits must be in the range [1, 32]");`;
-			}
-
-			return readBitsCode(target, bits, field.signed ? -(2 ** (bits - 1)) : 0, label, names);
-		}
+		case FieldType.Integer:
+			return bits.bits(target, field.bits, field.signed ? -(2 ** (field.bits - 1)) : 0, label, names);
 
 		case FieldType.Int8:
-			return `${target} = (buffer[offset++] << 24) >> 24;`;
+			return `${target} = (buffer[offset++]! << 24) >> 24;`;
 
 		case FieldType.Uint8:
-			return `${target} = buffer[offset++];`;
+			return `${target} = buffer[offset++]!;`;
 
 		case FieldType.Int16:
-			return `${target} = (${loadBytes(2, littleEndian)} << 16) >> 16; offset += 2;`;
+			return `${target} = (${loadBytes(2)} << 16) >> 16; offset += 2;`;
 
 		case FieldType.Uint16:
-			return `${target} = ${loadBytes(2, littleEndian)}; offset += 2;`;
+			return `${target} = ${loadBytes(2)}; offset += 2;`;
 
 		case FieldType.Int32:
-			return `${target} = ${loadBytes(4, littleEndian)} | 0; offset += 4;`;
+			return `${target} = ${loadBytes(4)} | 0; offset += 4;`;
 
 		case FieldType.Uint32:
-			return `${target} = ${loadBytes(4, littleEndian)}; offset += 4;`;
+			return `${target} = ${loadBytes(4)}; offset += 4;`;
 
 		case FieldType.Float16:
-			if (!F16) {
-				throw new TypeError(`Field "${label}": Float16 fields need Float16Array (Bun, Node 24+ or a recent browser)`);
-			}
-
-			return `${copyFloatBytes("F16B", 2, littleEndian, "fromBuffer")} ${target} = F16[0]; offset += 2;`;
+			return `${copyFloatBytes("F16B", 2, "fromBuffer")} ${target} = F16[0]!; offset += 2;`;
 
 		case FieldType.Float32:
-			return `${copyFloatBytes("F32B", 4, littleEndian, "fromBuffer")} ${target} = F32[0]; offset += 4;`;
+			return `${copyFloatBytes("F32B", 4, "fromBuffer")} ${target} = F32[0]!; offset += 4;`;
 
 		case FieldType.Float64:
-			return `${copyFloatBytes("F64B", 8, littleEndian, "fromBuffer")} ${target} = F64[0]; offset += 8;`;
+			return `${copyFloatBytes("F64B", 8, "fromBuffer")} ${target} = F64[0]!; offset += 8;`;
 
 		case FieldType.String: {
 			if (!field.includeSize) {
@@ -245,7 +208,7 @@ function readValueCode(field: Field, target: string, label: string, littleEndian
 
 			const length = names.next("length", label);
 
-			return `{ const ${length} = ${loadBytes(2, littleEndian)}; offset += 2; if (offset + ${length} > end) throw new RangeError("Read out of bounds: string of " + ${length} + " bytes"); ${target} = readUtf8(buffer, offset, offset + ${length}); offset += ${length}; }`;
+			return `{ const ${length} = ${loadBytes(2)}; offset += 2; if (offset + ${length} > end) throw new RangeError("Read out of bounds: string of " + ${length} + " bytes"); ${target} = readUtf8(buffer, offset, offset + ${length}); offset += ${length}; }`;
 		}
 
 		case FieldType.Buffer: {
@@ -256,11 +219,11 @@ function readValueCode(field: Field, target: string, label: string, littleEndian
 
 			const length = names.next("length", label);
 
-			return `{ const ${length} = ${loadBytes(2, littleEndian)}; offset += 2; if (offset + ${length} > end) throw new RangeError("Read out of bounds: buffer of " + ${length} + " bytes"); ${target} = buffer.subarray(offset, offset + ${length}); offset += ${length}; }`;
+			return `{ const ${length} = ${loadBytes(2)}; offset += 2; if (offset + ${length} > end) throw new RangeError("Read out of bounds: buffer of " + ${length} + " bytes"); ${target} = buffer.subarray(offset, offset + ${length}); offset += ${length}; }`;
 		}
 
 		case FieldType.Object: {
-			const nested = readCode(field.fields, `${label}.`, littleEndian, names);
+			const nested = readCode(field.fields, `${label}.`, type, names, bits);
 
 			return `{\n${nested.code}${target} = ${nested.object};\n}`;
 		}
