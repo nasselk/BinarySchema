@@ -5,17 +5,30 @@ import { isConditional, isOptional } from "../fields.js";
 import { FieldType } from "../types.js";
 import { commentText, propertyName } from "./codegen.js";
 // Names used in field descriptions
-const TYPE_NAMES = {
-    [FieldType.Int8]: "int8",
-    [FieldType.Uint8]: "uint8",
-    [FieldType.Int16]: "int16",
-    [FieldType.Uint16]: "uint16",
-    [FieldType.Int32]: "int32",
-    [FieldType.Uint32]: "uint32",
-    [FieldType.Float16]: "float16",
-    [FieldType.Float32]: "float32",
-    [FieldType.Float64]: "float64",
-};
+function typeName(type) {
+    switch (type) {
+        case FieldType.Int8:
+            return "int8";
+        case FieldType.Uint8:
+            return "uint8";
+        case FieldType.Int16:
+            return "int16";
+        case FieldType.Uint16:
+            return "uint16";
+        case FieldType.Int32:
+            return "int32";
+        case FieldType.Uint32:
+            return "uint32";
+        case FieldType.Float16:
+            return "float16";
+        case FieldType.Float32:
+            return "float32";
+        case FieldType.Float64:
+            return "float64";
+        default:
+            return "";
+    }
+}
 /** TypeScript type of one value of a field, or undefined for objects (which have no short name). */
 export function primitiveType(field, mode) {
     switch (field.type) {
@@ -76,7 +89,7 @@ function describeField(field) {
             parts.push(field.includeSize ? "bytes" : "bytes, takes the rest of the message");
             break;
         default:
-            parts.push(TYPE_NAMES[field.type]);
+            parts.push(typeName(field.type));
     }
     const options = field;
     if (options.min !== undefined) {

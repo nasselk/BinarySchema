@@ -1,8 +1,8 @@
 import { isConditional, isOptional } from "../fields.js";
 import { FieldType } from "../types.js";
-import { countBits, FIXED_BITS, fixedValueSize } from "../sizes.js";
+import { countBits, fixedBits, fixedValueSize } from "../sizes.js";
 import { BitWriter } from "./bits.js";
-import { commentText, copyFloatBytes, escape, FIXED_INTEGER_BOUNDS, key, literal, Names, rangeCheckCode, storeBytes } from "./codegen.js";
+import { commentText, copyFloatBytes, escape, fixedIntegerBounds, key, literal, Names, rangeCheckCode, storeBytes } from "./codegen.js";
 /*
  * Variables in the generated code:
  *   target      the writer: the caller's, or the shared scratch writer
@@ -111,7 +111,7 @@ function valueSizeCode(field, value, label, names) {
             return `{\nconst ${object} = ${value};\nif (${object} != null) {\n${sizeCode(field.fields, object, `${label}.`, names)}}\n}`;
         }
         default:
-            return `sizeBytes += ${FIXED_BITS[field.type] / 8};`;
+            return `sizeBytes += ${fixedBits(field.type) / 8};`;
     }
 }
 function writeCode(fields, data, path, names, context, bits) {
@@ -195,7 +195,7 @@ function writeValueCode(field, value, label, names, context, bits) {
         case FieldType.Float16:
         case FieldType.Float32:
         case FieldType.Float64: {
-            const bounds = FIXED_INTEGER_BOUNDS[field.type];
+            const bounds = fixedIntegerBounds(field.type);
             const number = names.next("number", label);
             // Integer types are also kept within their own range
             const min = bounds ? Math.max(bounds.min, field.min ?? -Infinity) : field.min;

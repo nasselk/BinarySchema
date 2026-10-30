@@ -7,14 +7,24 @@
 import { FieldType } from "../types.js";
 // Each fixed-width integer type's own range, enforced when encoding even without an explicit min/max
 // (writing 300 into a uint8 would otherwise silently store 44)
-export const FIXED_INTEGER_BOUNDS = {
-    [FieldType.Int8]: { min: -128, max: 127 },
-    [FieldType.Uint8]: { min: 0, max: 255 },
-    [FieldType.Int16]: { min: -32768, max: 32767 },
-    [FieldType.Uint16]: { min: 0, max: 65535 },
-    [FieldType.Int32]: { min: -2147483648, max: 2147483647 },
-    [FieldType.Uint32]: { min: 0, max: 4294967295 },
-};
+export function fixedIntegerBounds(type) {
+    switch (type) {
+        case FieldType.Int8:
+            return { min: -128, max: 127 };
+        case FieldType.Uint8:
+            return { min: 0, max: 255 };
+        case FieldType.Int16:
+            return { min: -32768, max: 32767 };
+        case FieldType.Uint16:
+            return { min: 0, max: 65535 };
+        case FieldType.Int32:
+            return { min: -2147483648, max: 2147483647 };
+        case FieldType.Uint32:
+            return { min: 0, max: 4294967295 };
+        default:
+            return undefined;
+    }
+}
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 export const isIdentifier = (name) => IDENTIFIER.test(name);
 /**
@@ -44,7 +54,7 @@ export const literal = (value) => (value === undefined ? "undefined" : JSON.stri
 /** Text safe to put inside a double-quoted string literal (field labels in error messages). */
 export const escape = (text) => JSON.stringify(text).slice(1, -1);
 // Everything JavaScript treats as the end of a line (U+2028 and U+2029 included)
-const LINE_BREAKS = new RegExp(`[\r\n${String.fromCharCode(0x2028, 0x2029)}]`, "g");
+const LINE_BREAKS = /[\r\n\p{Zl}\p{Zp}]/gu;
 /** Text safe to put in a `//` comment. */
 export const commentText = (text) => text.replace(LINE_BREAKS, " ");
 /**

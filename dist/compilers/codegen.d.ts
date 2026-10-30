@@ -5,10 +5,10 @@
  * (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noUnusedLocals`...): typed array reads end with `!`.
  */
 import { FieldType } from "../types.js";
-export declare const FIXED_INTEGER_BOUNDS: Partial<Record<FieldType, {
+export declare function fixedIntegerBounds(type: FieldType): {
     min: number;
     max: number;
-}>>;
+} | undefined;
 export declare const isIdentifier: (name: string) => boolean;
 /**
  * Readable, unique variable names for generated code: `prefix_field_path`, e.g. `value_position_x`.

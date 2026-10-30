@@ -2,11 +2,11 @@ import { type Field, isConditional, isOptional } from "../fields.js";
 
 import { FieldType, type SchemaDefinition } from "../types.js";
 
-import { countBits, FIXED_BITS, fixedValueSize } from "../sizes.js";
+import { countBits, fixedBits, fixedValueSize } from "../sizes.js";
 
 import { BitWriter } from "./bits.js";
 
-import { commentText, copyFloatBytes, escape, FIXED_INTEGER_BOUNDS, key, literal, Names, rangeCheckCode, storeBytes } from "./codegen.js";
+import { commentText, copyFloatBytes, escape, fixedIntegerBounds, key, literal, Names, rangeCheckCode, storeBytes } from "./codegen.js";
 
 /**
  * Encoders are generated per schema: straight-line code that writes bytes directly into the writer's buffer,
@@ -154,7 +154,7 @@ function valueSizeCode(field: Field, value: string, label: string, names: Names)
 		}
 
 		default:
-			return `sizeBytes += ${FIXED_BITS[field.type]! / 8};`;
+			return `sizeBytes += ${fixedBits(field.type) / 8};`;
 	}
 }
 
@@ -261,7 +261,7 @@ function writeValueCode(field: Field, value: string, label: string, names: Names
 		case FieldType.Float16:
 		case FieldType.Float32:
 		case FieldType.Float64: {
-			const bounds = FIXED_INTEGER_BOUNDS[field.type];
+			const bounds = fixedIntegerBounds(field.type);
 			const number = names.next("number", label);
 
 			// Integer types are also kept within their own range

@@ -4,8 +4,8 @@
  */
 import { type Field } from "./fields.js";
 import { FieldType, type SchemaDefinition } from "./types.js";
-/** Size in bits of each fixed-width number type. */
-export declare const FIXED_BITS: Partial<Record<FieldType, number>>;
+/** Size in bits of a fixed-width number type (Int8 ... Float64), or 0 for any other type. */
+export declare function fixedBits(type: FieldType): number;
 /** Bits needed to store a list count from 0 to `maxItems` (64 → 7 bits). */
 export declare const countBits: (maxItems: number) => number;
 /** The smallest and largest possible encoded size of a schema, in bytes. */

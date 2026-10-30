@@ -4,18 +4,26 @@
  */
 import { isOptional } from "./fields.js";
 import { FieldType } from "./types.js";
-/** Size in bits of each fixed-width number type. */
-export const FIXED_BITS = {
-    [FieldType.Int8]: 8,
-    [FieldType.Uint8]: 8,
-    [FieldType.Int16]: 16,
-    [FieldType.Uint16]: 16,
-    [FieldType.Float16]: 16,
-    [FieldType.Int32]: 32,
-    [FieldType.Uint32]: 32,
-    [FieldType.Float32]: 32,
-    [FieldType.Float64]: 64,
-};
+/** Size in bits of a fixed-width number type (Int8 ... Float64), or 0 for any other type. */
+export function fixedBits(type) {
+    switch (type) {
+        case FieldType.Int8:
+        case FieldType.Uint8:
+            return 8;
+        case FieldType.Int16:
+        case FieldType.Uint16:
+        case FieldType.Float16:
+            return 16;
+        case FieldType.Int32:
+        case FieldType.Uint32:
+        case FieldType.Float32:
+            return 32;
+        case FieldType.Float64:
+            return 64;
+        default:
+            return 0;
+    }
+}
 // Strings, buffers and lists without maxItems are prefixed with a uint16 length/count
 const SIZE_PREFIX_BYTES = 2;
 const MAX_PREFIXED_BYTES = 65535;
@@ -96,7 +104,7 @@ function valueSize(field) {
             return fieldsSize(field.fields);
         default: {
             // Fixed-width numbers: Int8 ... Float64
-            const bytes = FIXED_BITS[field.type] / 8;
+            const bytes = fixedBits(field.type) / 8;
             return { minBits: 0, maxBits: 0, minBytes: bytes, maxBytes: bytes };
         }
     }
