@@ -45,7 +45,7 @@
 		"bench:node": "bun src/cli.ts bench/schemas.ts --runtime ../src/runtime.js && bun build bench/bench.ts --target=node --outfile bench/.out/bench.mjs && node bench/.out/bench.mjs"
 	},
 	"dependencies": {
-		"@nasselk/binarypack": "github:nasselk/BinaryPack#v1.1.0"
+		"@nasselk/binarypack": "github:nasselk/BinaryPack#v1.3.0"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.6.6",
