@@ -54,16 +54,16 @@ Write the schemas in a file that exports them as default:
 import { field, type Schemas } from "@nasselk/binaryschema";
 
 export default {
-  Player: {
-    fields: {
-      id: field.uint16(),
-      x: field.float32({ min: -1000, max: 1000 }),
-      y: field.float32({ min: -1000, max: 1000 }),
-      health: field.integer(7, { max: 100 }), // 7-bit packed integer
-      name: field.string({ maxLength: 32 }),
-      isAlive: field.boolean({ default: true }),
-    },
-  },
+	Player: {
+		fields: {
+			id: field.uint16(),
+			x: field.float32({ min: -1000, max: 1000 }),
+			y: field.float32({ min: -1000, max: 1000 }),
+			health: field.integer(7, { max: 100 }), // 7-bit packed integer
+			name: field.string({ maxLength: 32 }),
+			isAlive: field.boolean({ default: true }),
+		},
+	},
 } satisfies Schemas;
 ```
 
@@ -81,12 +81,12 @@ import schemas, { type Player } from "./schema.gen.ts";
 
 // encode() only accepts data of the exact shape the schema describes
 const bytes = schemas.Player.encode({
-  id: 12345,
-  x: 150.5,
-  y: -200.75,
-  health: 85,
-  name: "Hero",
-  isAlive: true,
+	id: 12345,
+	x: 150.5,
+	y: -200.75,
+	health: 85,
+	name: "Hero",
+	isAlive: true,
 });
 
 const decoded: Player = schemas.Player.decode(new BufferReader(bytes));
@@ -120,21 +120,23 @@ It compiles under the strictest TypeScript settings (`noUncheckedIndexedAccess`,
 - **`schema.encode(data)`** → `Uint8Array`, or **`schema.encode(data, writer)`** → number of bytes written into an existing `BufferWriter` (see [Shared writer/reader](#shared-writerreader-packet-framing)).
 - **`schema.decode(reader)`** → the decoded data object, read from a `BufferReader`.
 - **`schema.minByteLength` / `schema.maxByteLength`** — the smallest and largest possible encoded size in bytes, computed when generating. Optional and dependency-gated fields count as absent for the minimum. Strings count up to 3 bytes per character (`maxLength × 3`) for the maximum. A string or buffer without `maxLength`, or a `list` without `maxItems`, makes the maximum `Infinity`. When both are equal, every message has that exact size.
-- **`PlayerInput` / `Player`** — the generated input/output types of a schema. They differ: a field with a `default` is *optional* on the way in (you can omit it) but *never `undefined`* on the way out (the decoder always resolves it). See [below](#optional-fields-vs-dependencies-vs-defaults).
+- **`PlayerInput` / `Player`** — the generated input/output types of a schema. They differ: a field with a `default` is _optional_ on the way in (you can omit it) but _never `undefined`_ on the way out (the decoder always resolves it). See [below](#optional-fields-vs-dependencies-vs-defaults).
 - **Decoded objects always have every key.** An optional or dependent field that wasn't sent is `undefined` rather than missing, so every object of a schema has the same shape, which JavaScript engines optimize best. `JSON.stringify` still leaves it out, but `"field" in message` and `Object.keys` include it.
 
 ## Schema definition
 
 ```ts
 export default {
-  SchemaName: {
-    fields: {
-      fieldName: field.integer(8, { /* options for this field type */ }),
-    },
-    metadata: {
-      prefix: [0x01], // optional: leading bytes written before the fields (see below)
-    },
-  },
+	SchemaName: {
+		fields: {
+			fieldName: field.integer(8, {
+				/* options for this field type */
+			}),
+		},
+		metadata: {
+			prefix: [0x01], // optional: leading bytes written before the fields (see below)
+		},
+	},
 } satisfies Schemas;
 ```
 
@@ -245,20 +247,20 @@ field.object({ x: field.float32(), y: field.float32() }, {
 These three interact but mean different things on the wire and in the inferred types:
 
 - **`optional: true`** costs one actual bit — the encoder always writes a presence flag for that field, independent of any other field, and the decoder reads it back to decide whether to read the value.
-- **`dependencies: ["otherField", ...]`** costs *zero* extra bits. There's no presence flag for the dependent field at all — whether it's read/written is derived purely from the (already-encoded) value of the boolean field(s) it depends on, defaults included. Since the decoder reads the field whenever its dependencies are true, encoding throws if it's missing then (unless it has a default). Dependencies must reference existing `Boolean` fields, and fields are automatically reordered so a dependency is always resolved before anything that depends on it (circular dependencies are rejected when generating).
-- **`default: <value>`** makes the field omittable from the *encode* input (the encoder substitutes the default when you don't provide one) — but on *decode*, a defaulted field is **never `undefined`**, since the decoder always resolves it one way or another (including fields that are both `optional` and defaulted). This is why `PlayerInput` and `Player` can disagree on which fields are optional for the same schema.
+- **`dependencies: ["otherField", ...]`** costs _zero_ extra bits. There's no presence flag for the dependent field at all — whether it's read/written is derived purely from the (already-encoded) value of the boolean field(s) it depends on, defaults included. Since the decoder reads the field whenever its dependencies are true, encoding throws if it's missing then (unless it has a default). Dependencies must reference existing `Boolean` fields, and fields are automatically reordered so a dependency is always resolved before anything that depends on it (circular dependencies are rejected when generating).
+- **`default: <value>`** makes the field omittable from the _encode_ input (the encoder substitutes the default when you don't provide one) — but on _decode_, a defaulted field is **never `undefined`**, since the decoder always resolves it one way or another (including fields that are both `optional` and defaulted). This is why `PlayerInput` and `Player` can disagree on which fields are optional for the same schema.
 
 ```ts
 export default {
-  Packet: {
-    fields: {
-      compressed: field.boolean(),
-      encrypted: field.boolean(),
-      compressionLevel: field.uint8({ dependencies: ["compressed"] }), // only if compressed
-      encryptionKey: field.buffer({ dependencies: ["encrypted", "compressed"] }), // only if both
-      timestamp: field.uint32({ optional: true }), // presence bit, independent of anything else
-    },
-  },
+	Packet: {
+		fields: {
+			compressed: field.boolean(),
+			encrypted: field.boolean(),
+			compressionLevel: field.uint8({ dependencies: ["compressed"] }), // only if compressed
+			encryptionKey: field.buffer({ dependencies: ["encrypted", "compressed"] }), // only if both
+			timestamp: field.uint32({ optional: true }), // presence bit, independent of anything else
+		},
+	},
 } satisfies Schemas;
 ```
 
@@ -268,13 +270,13 @@ Any field type can be marked `list: true` for an array of that type, prefixed wi
 
 ```ts
 export default {
-  Inventory: {
-    fields: {
-      playerId: field.uint16(),
-      items: field.uint8({ list: true }),
-      tags: field.string({ list: true }),
-    },
-  },
+	Inventory: {
+		fields: {
+			playerId: field.uint16(),
+			items: field.uint8({ list: true }),
+			tags: field.string({ list: true }),
+		},
+	},
 } satisfies Schemas;
 ```
 
@@ -302,35 +304,35 @@ entities: field.object(Entity, { list: true, maxItems: 64 }),
 
 ```ts
 const Entity = {
-  id: field.uint16(),
-  x: field.float32(),
-  y: field.float32(),
-  hp: field.integer(7, { max: 100 }),
-  stunned: field.boolean(),
+	id: field.uint16(),
+	x: field.float32(),
+	y: field.float32(),
+	hp: field.integer(7, { max: 100 }),
+	stunned: field.boolean(),
 };
 
 export default {
-  Snapshot: {
-    fields: {
-      tick: field.uint32(),
-      entities: field.object(Entity, { list: true }),
-      camera: field.object(
-        {
-          zoom: field.float32(),
-          locked: field.boolean(),
-          targetId: field.uint16({ dependencies: ["locked"] }), // depends on a sibling in the same object
-        },
-        { optional: true },
-      ),
-    },
-  },
+	Snapshot: {
+		fields: {
+			tick: field.uint32(),
+			entities: field.object(Entity, { list: true }),
+			camera: field.object(
+				{
+					zoom: field.float32(),
+					locked: field.boolean(),
+					targetId: field.uint16({ dependencies: ["locked"] }), // depends on a sibling in the same object
+				},
+				{ optional: true },
+			),
+		},
+	},
 } satisfies Schemas;
 ```
 
 ```ts
 schemas.Snapshot.encode({
-  tick: 1200,
-  entities: [{ id: 1, x: 10, y: 20, hp: 100, stunned: false }],
+	tick: 1200,
+	entities: [{ id: 1, x: 10, y: 20, hp: 100, stunned: false }],
 });
 ```
 
@@ -360,7 +362,7 @@ Every message starts on a fresh byte: if the writer or reader is in the middle o
 
 ## The `metadata.prefix` bytes
 
-`metadata.prefix` is an array of bytes written one after another (each as a `uint8`) at the very start of `encode()`'s output — but `decode()` does **not** consume them. An empty (or omitted) array writes nothing. This matches a dispatch pattern where a prefix identifies which schema to use *before* you know which `decode()` to call:
+`metadata.prefix` is an array of bytes written one after another (each as a `uint8`) at the very start of `encode()`'s output — but `decode()` does **not** consume them. An empty (or omitted) array writes nothing. This matches a dispatch pattern where a prefix identifies which schema to use _before_ you know which `decode()` to call:
 
 ```ts
 const bytes = Tagged.encode({ value: 42 }); // bytes[0] === the first prefix byte
@@ -382,10 +384,8 @@ Requirements: [Bun](https://bun.sh) (Node.js 24+ only for `bench:node`).
 ```pwsh
 bun install          # install dependencies
 bun test             # run the test suite
-bun run typecheck    # type-check src/, and the tests + generated files with the strictest settings
+bun check            # type-check src/, and the tests + generated files with the strictest settings
 bun run build        # compile src/ -> dist/ (JS + .d.ts + sourcemaps)
-bun run format       # format with Biome
-bun run lint         # lint with Biome (the linter is currently disabled in biome.json, so this has nothing to check)
 bun run biome:check  # format + lint in one pass, applying fixes
 bun run bench        # generate bench/schemas.gen.ts, then a size/speed benchmark against protobuf, Avro, FlatBuffers, msgpack, JSON… (Bun)
 bun run bench:node   # the same benchmark on Node.js

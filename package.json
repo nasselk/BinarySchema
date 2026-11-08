@@ -39,10 +39,7 @@
 	},
 	"scripts": {
 		"build": "rm -rf dist && tsc",
-		"test": "bun test",
-		"typecheck": "tsc --noEmit -p . && bun tests/setup.ts && tsc -p tests/tsconfig.json",
-		"format": "biome format --write",
-		"lint": "biome lint --write",
+		"release": "bun ./scripts/release.ts",
 		"biome:check": "biome check --write",
 		"bench": "bun src/cli.ts bench/schemas.ts --runtime ../src/runtime.js && bun bench/bench.ts",
 		"bench:node": "bun src/cli.ts bench/schemas.ts --runtime ../src/runtime.js && bun build bench/bench.ts --target=node --outfile bench/.out/bench.mjs && node bench/.out/bench.mjs"
