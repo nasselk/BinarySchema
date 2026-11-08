@@ -3,7 +3,7 @@
 	"name": "@nasselk/binaryschema",
 	"author": "nasselk",
 	"description": "TypeScript schemas compiled ahead of time into fast, fully typed binary encoders and decoders",
-	"version": "0.1.0",
+	"version": "1.0.0",
 	"license": "MIT",
 	"homepage": "https://github.com/nasselk/BinarySchema",
 	"repository": {
