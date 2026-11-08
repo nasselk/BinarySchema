@@ -4,6 +4,7 @@ type Level = (typeof LEVELS)[number];
 
 const ROOT = `${import.meta.dir}/..`;
 const PACKAGE = Bun.file(`${ROOT}/package.json`);
+const VERSION_FILE = Bun.file(`${ROOT}/src/version.ts`);
 const BRANCH = "main";
 const REMOTE = "origin";
 
@@ -102,20 +103,37 @@ if (dryRun) {
 	process.exit(0);
 }
 
-run("bun", "run", "build");
-
 const updated = source.replace(/("version"\s*:\s*")[^"]*(")/, `$1${next}$2`);
 
 if (updated === source) {
 	fail("Could not find the version field in package.json");
 }
 
-await Bun.write(PACKAGE, updated);
+const versionSource = await VERSION_FILE.text();
+const updatedVersion = versionSource.replace(/(VERSION\s*=\s*")[^"]*(")/, `$1${next}$2`);
 
-if (!attempt("git", "add", "package.json") || !attempt("git", "add", "--all", "dist") || !attempt("git", "commit", "-m", `Release ${tag}`)) {
-	Bun.spawnSync(["git", "reset", "-q", "--", "package.json", "dist"], { cwd: ROOT });
+if (updatedVersion === versionSource) {
+	fail("Could not find the VERSION constant in src/version.ts");
+}
+
+// Written before the build, so dist/ carries the new version too.
+await Bun.write(PACKAGE, updated);
+await Bun.write(VERSION_FILE, updatedVersion);
+
+async function restore(): Promise<void> {
+	Bun.spawnSync(["git", "reset", "-q", "--", "package.json", "src/version.ts", "dist"], { cwd: ROOT });
 	await Bun.write(PACKAGE, source);
-	fail(`Nothing was released: package.json is back at ${current}, and dist/ holds the new build, uncommitted`);
+	await Bun.write(VERSION_FILE, versionSource);
+}
+
+if (!attempt("bun", "run", "build")) {
+	await restore();
+	fail(`bun run build failed: package.json and src/version.ts are back at ${current}`);
+}
+
+if (!attempt("git", "add", "package.json", "src/version.ts") || !attempt("git", "add", "--all", "dist") || !attempt("git", "commit", "-m", `Release ${tag}`)) {
+	await restore();
+	fail(`Nothing was released: package.json and src/version.ts are back at ${current}, and dist/ holds the new build, uncommitted`);
 }
 
 if (!attempt("git", "tag", "-a", tag, "-m", tag)) {
