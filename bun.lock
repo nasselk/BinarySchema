@@ -5,7 +5,7 @@
     "": {
       "name": "@nasselk/binaryschema",
       "dependencies": {
-        "@nasselk/binarypack": "github:nasselk/BinaryPack#v1.0.0",
+        "@nasselk/binarypack": "github:nasselk/BinaryPack#v1.1.0",
       },
       "devDependencies": {
         "@biomejs/biome": "^2.6.6",
@@ -46,7 +46,7 @@
 
     "@msgpack/msgpack": ["@msgpack/msgpack@3.1.3", "", {}, "sha512-47XIizs9XZXvuJgoaJUIE2lFoID8ugvc0jzSHP+Ptfk8nTbnR8g788wv48N03Kx0UkAv559HWRQ3yzOgzlRNUA=="],
 
-    "@nasselk/binarypack": ["@nasselk/binarypack@github:nasselk/BinaryPack#0e14379", {}, "nasselk-BinaryPack-0e14379", "sha512-pKOKHuH9G3NGkaaBe19A58pu8vxVPD6+oUySNBAwSpBWqzdkm4doOoH1epDWdMzZ4zkcFy+w+4OHESAccIfvAg=="],
+    "@nasselk/binarypack": ["@nasselk/binarypack@github:nasselk/BinaryPack#314bd87", {}, "nasselk-BinaryPack-314bd87", "sha512-khtfjuT8R5uJfa2wZckr5nrezGtuUIzvMuNIESAJiHxuk5rrLQJ6UMC6fU4DprgSwRuUz3ysBHCCfdCh4Lr3Ow=="],
 
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 
